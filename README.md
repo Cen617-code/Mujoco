@@ -126,6 +126,28 @@ scripts\pd_control.py
 analysis\results\dynamics_report.md
 ```
 
+## 机身平衡控制
+
+第一版机身平衡控制使用腿部 PD 保持站立姿态，并用左右轮同向力矩调节机身 pitch。它是原地平衡原型，不是行走控制器。
+
+运行平衡分析：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\analyze_balance.py --duration 2.0
+```
+
+查看受控仿真：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_balance_viewer.py
+```
+
+输出目录：
+
+```text
+analysis\balance_results\
+```
+
 ## 当前限制
 
 - 目前不是轮式双足平衡控制器。

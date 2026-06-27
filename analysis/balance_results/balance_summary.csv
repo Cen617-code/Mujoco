@@ -1,0 +1,2 @@
+duration,timestep,steps,warning_count,finite,peak_abs_pitch,final_pitch,peak_abs_pitch_rate,peak_abs_wheel_torque,final_base_height
+2.0,0.001,2000,0,True,1.0980783264826033,0.48547801909181004,5.557106646612753,10.0,0.11829042015252249
