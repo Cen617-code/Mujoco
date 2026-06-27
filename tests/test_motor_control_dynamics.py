@@ -78,17 +78,22 @@ def test_base_weld_equality_exists_for_analysis(model):
 def test_base_imu_site_and_sensors_exist(model):
     site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "base_imu_site")
     assert site_id >= 0
+    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link")
+    assert body_id >= 0
+    assert model.site_bodyid[site_id] == body_id
     assert np.allclose(model.site_pos[site_id], [0.0, 0.0, 0.08])
 
     expected = {
-        "base_imu_gyro": 3,
-        "base_imu_accel": 3,
-        "base_imu_quat": 4,
+        "base_imu_gyro": (mujoco.mjtSensor.mjSENS_GYRO, 3),
+        "base_imu_accel": (mujoco.mjtSensor.mjSENS_ACCELEROMETER, 3),
+        "base_imu_quat": (mujoco.mjtSensor.mjSENS_FRAMEQUAT, 4),
     }
-    for sensor_name, sensor_dim in expected.items():
+    for sensor_name, (sensor_type, sensor_dim) in expected.items():
         sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_name)
         assert sensor_id >= 0
+        assert model.sensor_type[sensor_id] == sensor_type
         assert model.sensor_dim[sensor_id] == sensor_dim
+        assert model.sensor_objid[sensor_id] == site_id
 
 
 def test_base_imu_sensor_data_is_finite(model):
