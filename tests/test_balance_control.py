@@ -1,4 +1,6 @@
 import csv
+import subprocess
+import sys
 from pathlib import Path
 
 import mujoco
@@ -146,3 +148,18 @@ def test_write_balance_results_outputs_planned_files(model, tmp_path):
             "base_height",
         ]
         assert len(list(reader)) == result.steps
+
+
+def test_run_balance_viewer_help_succeeds():
+    script = ROOT / "scripts" / "run_balance_viewer.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 0
+    assert "--duration" in completed.stdout
