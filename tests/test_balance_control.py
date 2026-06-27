@@ -14,6 +14,7 @@ from scripts.balance_control import (
     compute_balance_control,
     quat_to_pitch,
 )
+from scripts.analyze_balance import run_balance_simulation, write_balance_results
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,3 +96,23 @@ def test_apply_balance_control_writes_model_ctrl(model):
     assert ctrl.shape == (model.nu,)
     assert np.allclose(data.ctrl, ctrl)
     assert np.isfinite(state.pitch)
+
+
+def test_balance_simulation_runs_finite(model):
+    result = run_balance_simulation(model, duration=0.25)
+    assert result.warning_count == 0
+    assert result.finite
+    assert result.steps > 0
+    assert result.peak_abs_wheel_torque <= 10.0 + 1e-9
+    assert np.isfinite(result.final_pitch)
+
+
+def test_write_balance_results_outputs_planned_files(model, tmp_path):
+    result = run_balance_simulation(model, duration=0.05)
+    write_balance_results(result, tmp_path)
+    assert (tmp_path / "balance_summary.csv").is_file()
+    assert (tmp_path / "balance_timeseries.csv").is_file()
+    assert (tmp_path / "balance_report.md").is_file()
+    report = (tmp_path / "balance_report.md").read_text(encoding="utf-8")
+    assert "Balance Control Analysis" in report
+    assert "not walking" in report
