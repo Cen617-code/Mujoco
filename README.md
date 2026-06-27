@@ -13,6 +13,7 @@
   - knee：±30 N·m
   - wheel：±10 N·m
 - 包含外部 Python PD 控制工具
+- 在 `base_link` 上方包含理想 IMU 传感器
 - 包含固定基座单关节阶跃响应分析
 - 包含 free-base 姿态保持有限动力学验证
 
@@ -92,6 +93,16 @@ tests/
 
 语义上原 URDF 中写错的 `yaw` 已在 MJCF 命名中改为 `roll`。roll 关节轴保持 URDF 原始局部轴设置，因为关节坐标系会把它映射到世界坐标的 x 方向。
 
+## IMU 传感器
+
+模型在 `base_link` 上方添加了 `base_imu_site`，并生成理想 MuJoCo IMU 传感器：
+
+- `base_imu_gyro`
+- `base_imu_accel`
+- `base_imu_quat`
+
+平衡控制器会优先使用 IMU 的姿态四元数和角速度；如果模型没有这些传感器，则回退到 freejoint 的 `qpos/qvel`。
+
 ## 控制说明
 
 电机是 MuJoCo 原生 torque motor。PD 控制在 Python 中实现：
@@ -128,7 +139,7 @@ analysis\results\dynamics_report.md
 
 ## 机身平衡控制
 
-第一版机身平衡控制使用腿部 PD 保持名义站立关节姿态，并用左右轮调节机身 pitch。由于左右轮关节轴在世界坐标中方向相反，控制器会给左右轮 actuator 反向控制量，使物理轮滚动力矩方向一致。它是原地平衡原型，不是行走控制器。
+第一版机身平衡控制使用腿部 PD 保持名义站立关节姿态，并用左右轮调节机身 pitch。pitch 反馈在模型提供 IMU 时来自 `base_imu_quat` 和 `base_imu_gyro`；如果没有 IMU 传感器，则回退到 freejoint 的 `qpos/qvel`。由于左右轮关节轴在世界坐标中方向相反，控制器会给左右轮 actuator 反向控制量，使物理轮滚动力矩方向一致。它是原地平衡原型，不是行走控制器。
 
 运行平衡分析：
 
