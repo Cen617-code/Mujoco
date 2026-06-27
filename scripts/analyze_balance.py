@@ -29,6 +29,8 @@ from scripts.pd_control import build_joint_map, set_base_weld_active
 DEFAULT_SOURCE = ROOT / "8dof_URDF" / "urdf" / "robot.urdf"
 DEFAULT_MODEL = ROOT / "8dof_URDF" / "mjcf" / "robot.xml"
 DEFAULT_RESULTS = ROOT / "analysis" / "balance_results"
+WHEEL_TORQUE_LIMIT_NM = 10.0
+TORQUE_LIMIT_EPSILON = 1e-9
 
 
 @dataclass(frozen=True)
@@ -165,8 +167,16 @@ def write_balance_results(
         f"- Final base height: {result.final_base_height:.6g} m",
         "",
         "This is a first-pass in-place balance prototype, not walking or trajectory tracking.",
-        "",
     ]
+    if result.peak_abs_wheel_torque >= WHEEL_TORQUE_LIMIT_NM - TORQUE_LIMIT_EPSILON:
+        lines.extend(
+            [
+                "",
+                "This run reached the ±10 N·m wheel torque limit; results are first-pass balance diagnostics "
+                "and do not demonstrate robust standing or walking.",
+            ]
+        )
+    lines.append("")
     (output_dir / "balance_report.md").write_text("\n".join(lines), encoding="utf-8")
     return output_dir
 

@@ -11,3 +11,5 @@
 - Final base height: 0.11829 m
 
 This is a first-pass in-place balance prototype, not walking or trajectory tracking.
+
+This run reached the ±10 N·m wheel torque limit; results are first-pass balance diagnostics and do not demonstrate robust standing or walking.

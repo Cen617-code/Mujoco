@@ -17,7 +17,11 @@ from scripts.balance_control import (
     compute_balance_control,
     quat_to_pitch,
 )
-from scripts.analyze_balance import run_balance_simulation, write_balance_results
+from scripts.analyze_balance import (
+    BalanceSimulationResult,
+    run_balance_simulation,
+    write_balance_results,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -148,6 +152,36 @@ def test_write_balance_results_outputs_planned_files(model, tmp_path):
             "base_height",
         ]
         assert len(list(reader)) == result.steps
+
+
+def test_write_balance_results_notes_wheel_torque_saturation(tmp_path):
+    result = BalanceSimulationResult(
+        duration=2.0,
+        timestep=0.001,
+        steps=2000,
+        warning_count=0,
+        finite=True,
+        peak_abs_pitch=1.0,
+        final_pitch=0.5,
+        peak_abs_pitch_rate=5.0,
+        peak_abs_wheel_torque=10.0,
+        final_base_height=0.12,
+        timeseries=[
+            {
+                "time": 0.001,
+                "pitch": 0.1,
+                "pitch_rate": 0.2,
+                "x": 0.0,
+                "x_velocity": 0.0,
+                "wheel_torque": 10.0,
+                "base_height": 0.12,
+            }
+        ],
+    )
+    write_balance_results(result, tmp_path)
+    report = (tmp_path / "balance_report.md").read_text(encoding="utf-8")
+    assert "reached the ±10 N·m wheel torque limit" in report
+    assert "do not demonstrate robust standing or walking" in report
 
 
 def test_run_balance_viewer_help_succeeds():
