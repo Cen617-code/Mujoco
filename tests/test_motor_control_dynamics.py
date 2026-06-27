@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path
 import subprocess
 import sys
@@ -154,7 +155,11 @@ def test_fixed_base_step_response_runs_finite(model):
     assert len(result.metrics) == 8
     for metric in result.metrics:
         assert metric.joint_name in CONTROLLED_JOINTS
+        assert np.isfinite(metric.target)
         assert np.isfinite(metric.final_position)
+        assert np.isfinite(metric.rise_time) or np.isnan(metric.rise_time)
+        assert np.isfinite(metric.overshoot)
+        assert np.isfinite(metric.settling_time) or np.isnan(metric.settling_time)
         assert np.isfinite(metric.steady_state_error)
         assert np.isfinite(metric.peak_torque)
         assert 0.0 <= metric.saturation_fraction <= 1.0
@@ -168,6 +173,8 @@ def test_free_base_posture_check_runs_finite(model):
     assert np.isfinite(result.peak_abs_qvel)
     assert np.isfinite(result.peak_abs_ctrl)
     assert result.peak_abs_ctrl <= 30.0 + 1e-9
+    assert len(result.final_base_quat_wxyz) == 4
+    assert np.all(np.isfinite(result.final_base_quat_wxyz))
 
 
 def test_write_results_uses_planned_artifact_names(tmp_path):
@@ -178,8 +185,11 @@ def test_write_results_uses_planned_artifact_names(tmp_path):
         metrics=[
             StepMetric(
                 joint_name="left_roll_joint",
-                target_position=0.05,
+                target=0.05,
                 final_position=0.04,
+                rise_time=0.12,
+                overshoot=0.0,
+                settling_time=0.2,
                 steady_state_error=0.01,
                 peak_torque=1.5,
                 saturation_fraction=0.0,
@@ -202,6 +212,7 @@ def test_write_results_uses_planned_artifact_names(tmp_path):
         peak_abs_qvel=0.2,
         peak_abs_ctrl=1.5,
         final_base_height=0.3,
+        final_base_quat_wxyz=(1.0, 0.0, 0.0, 0.0),
     )
 
     output_dir = write_results(step_result, free_result, tmp_path)
@@ -213,9 +224,32 @@ def test_write_results_uses_planned_artifact_names(tmp_path):
     assert not (tmp_path / "summary.json").exists()
     assert not (tmp_path / "step_metrics.csv").exists()
     assert not (tmp_path / "report.md").exists()
-    assert "left_roll_joint" in (tmp_path / "step_response_metrics.csv").read_text()
-    assert "peak_abs_qvel" in (tmp_path / "free_base_summary.csv").read_text()
-    assert "Free-base posture check" in (tmp_path / "dynamics_report.md").read_text()
+    with (tmp_path / "step_response_metrics.csv").open(newline="") as file:
+        step_columns = csv.DictReader(file).fieldnames
+    assert step_columns is not None
+    for column in [
+        "joint_name",
+        "target",
+        "final_position",
+        "rise_time",
+        "overshoot",
+        "settling_time",
+        "steady_state_error",
+        "peak_torque",
+        "saturation_fraction",
+    ]:
+        assert column in step_columns
+    with (tmp_path / "free_base_summary.csv").open(newline="") as file:
+        free_columns = csv.DictReader(file).fieldnames
+    assert free_columns is not None
+    assert "final_base_quat_wxyz" in free_columns
+    report = (tmp_path / "dynamics_report.md").read_text()
+    assert "Rise time" in report
+    assert "Overshoot" in report
+    assert "Settling time" in report
+    assert "first-pass tuning/finite-dynamics diagnostics" in report
+    assert "not validated tracking performance" in report
+    assert "Free-base posture check" in report
 
 
 def test_analyze_dynamics_direct_script_cli_writes_planned_artifacts(tmp_path):
@@ -241,3 +275,4 @@ def test_analyze_dynamics_direct_script_cli_writes_planned_artifacts(tmp_path):
     report = (tmp_path / "dynamics_report.md").read_text()
     assert "Balance control is not implemented" in report
     assert "free-base falling is allowed" in report
+    assert "not validated tracking performance" in report

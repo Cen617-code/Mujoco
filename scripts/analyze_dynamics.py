@@ -33,8 +33,11 @@ DEFAULT_RESULTS = ROOT / "analysis" / "results"
 @dataclass(frozen=True)
 class StepMetric:
     joint_name: str
-    target_position: float
+    target: float
     final_position: float
+    rise_time: float
+    overshoot: float
+    settling_time: float
     steady_state_error: float
     peak_torque: float
     saturation_fraction: float
@@ -58,6 +61,7 @@ class FreeBaseResult:
     peak_abs_qvel: float
     peak_abs_ctrl: float
     final_base_height: float
+    final_base_quat_wxyz: tuple[float, float, float, float]
 
 
 def _warning_count(data: mujoco.MjData) -> int:
@@ -84,23 +88,50 @@ def _reset_data(model: mujoco.MjModel, data: mujoco.MjData) -> None:
 
 def _metric_from_trace(
     joint_name: str,
-    target_position: float,
+    target: float,
+    times: Sequence[float],
     positions: Sequence[float],
     torques: Sequence[float],
     torque_limits: Sequence[float],
 ) -> StepMetric:
+    time_values = np.asarray(times, dtype=float)
     position_values = np.asarray(positions, dtype=float)
     torque_values = np.asarray(torques, dtype=float)
-    if position_values.size == 0 or torque_values.size == 0:
+    if time_values.size == 0 or position_values.size == 0 or torque_values.size == 0:
         raise ValueError(f"Trace for {joint_name!r} is empty")
     lower, upper = float(torque_limits[0]), float(torque_limits[1])
     saturated = (torque_values <= lower + 1e-12) | (torque_values >= upper - 1e-12)
+    initial_position = float(position_values[0])
     final_position = float(position_values[-1])
+    step_delta = float(target - initial_position)
+    step_magnitude = abs(step_delta)
+    direction = 1.0 if step_delta >= 0.0 else -1.0
+    if step_magnitude <= 1e-12:
+        rise_time = 0.0
+        overshoot = 0.0
+        settling_time = 0.0
+    else:
+        threshold = initial_position + 0.9 * step_delta
+        crossed = np.flatnonzero(direction * (position_values - threshold) >= 0.0)
+        rise_time = float(time_values[crossed[0]]) if crossed.size else float("nan")
+        overshoot = float(
+            max(0.0, np.max(direction * (position_values - float(target))) / step_magnitude)
+        )
+        tolerance = 0.02 * step_magnitude
+        within_tolerance = np.abs(float(target) - position_values) <= tolerance
+        settling_time = float("nan")
+        for index in range(within_tolerance.size):
+            if bool(np.all(within_tolerance[index:])):
+                settling_time = float(time_values[index])
+                break
     return StepMetric(
         joint_name=joint_name,
-        target_position=float(target_position),
+        target=float(target),
         final_position=final_position,
-        steady_state_error=float(target_position - final_position),
+        rise_time=rise_time,
+        overshoot=overshoot,
+        settling_time=settling_time,
+        steady_state_error=float(target - final_position),
         peak_torque=float(np.max(np.abs(torque_values))),
         saturation_fraction=float(np.mean(saturated)),
     )
@@ -152,6 +183,7 @@ def run_fixed_base_step_response(
             _metric_from_trace(
                 entry.joint_name,
                 float(targets[entry.joint_name]),
+                times,
                 positions,
                 torques,
                 model.actuator_ctrlrange[entry.actuator_id],
@@ -199,6 +231,7 @@ def run_free_base_posture_check(
         peak_abs_qvel=peak_abs_qvel,
         peak_abs_ctrl=peak_abs_ctrl,
         final_base_height=float(data.qpos[2]),
+        final_base_quat_wxyz=tuple(float(value) for value in data.qpos[3:7]),
     )
 
 
@@ -213,8 +246,11 @@ def write_results(
 
     metric_fields = [
         "joint_name",
-        "target_position",
+        "target",
         "final_position",
+        "rise_time",
+        "overshoot",
+        "settling_time",
         "steady_state_error",
         "peak_torque",
         "saturation_fraction",
@@ -235,6 +271,7 @@ def write_results(
         "peak_abs_qvel",
         "peak_abs_ctrl",
         "final_base_height",
+        "final_base_quat_wxyz",
     ]
     with (output_dir / "free_base_summary.csv").open(
         "w", encoding="utf-8", newline=""
@@ -257,16 +294,26 @@ def _write_report(path: Path, step_result: StepResponseResult, free_result: Free
         f"- Duration: {step_result.duration:.6g} s",
         f"- Timestep: {step_result.timestep:.6g} s",
         f"- MuJoCo warnings: {step_result.warning_count}",
+        (
+            "- Interpretation: Fixed-base step responses are first-pass "
+            "tuning/finite-dynamics diagnostics, not validated tracking performance."
+        ),
         "",
-        "| Joint | Target | Final | Error | Peak torque | Saturation |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        (
+            "| Joint | Target | Final | Rise time | Overshoot | Settling time | "
+            "Error | Peak torque | Saturation |"
+        ),
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for metric in step_result.metrics:
         lines.append(
             "| "
             f"{metric.joint_name} | "
-            f"{metric.target_position:.6g} | "
+            f"{metric.target:.6g} | "
             f"{metric.final_position:.6g} | "
+            f"{metric.rise_time:.6g} | "
+            f"{metric.overshoot:.6g} | "
+            f"{metric.settling_time:.6g} | "
             f"{metric.steady_state_error:.6g} | "
             f"{metric.peak_torque:.6g} | "
             f"{metric.saturation_fraction:.3f} |"
@@ -282,6 +329,7 @@ def _write_report(path: Path, step_result: StepResponseResult, free_result: Free
             f"- Peak |qvel|: {free_result.peak_abs_qvel:.6g}",
             f"- Peak |ctrl|: {free_result.peak_abs_ctrl:.6g}",
             f"- Final base height: {free_result.final_base_height:.6g} m",
+            f"- Final base quaternion (wxyz): {free_result.final_base_quat_wxyz}",
             (
                 "- Interpretation: Balance control is not implemented; "
                 "free-base falling is allowed when the simulation remains finite "
