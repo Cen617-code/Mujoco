@@ -38,7 +38,7 @@
         <geom name="left_roll_visual" type="mesh" mesh="left_roll_link" pos="0 0 0" quat="1 0 0 0" rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" contype="0" conaffinity="0" group="1" />
         <geom name="left_roll_collision" type="mesh" mesh="left_roll_link" pos="0 0 0" quat="1 0 0 0" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" />
         <body name="left_hip_pitch_link" pos="-0.069997 -0.0010952 0.060082" quat="0.707105482511 0 0.707108079859 0">
-          <joint name="left_hip_pitch_joint" type="hinge" axis="0 0 -1" damping="0.1" range="-3.14 3.14" />
+          <joint name="left_hip_pitch_joint" type="hinge" axis="0 0 -1" damping="0.1" range="-1.22 0.87" />
           <inertial pos="-0.054939667 -0.0388954532328 -0.0324790229476" mass="1.7219945" fullinertia="0.0068887 0.0092514 0.0138889 -0.0060752 -0.0017370 -0.0013122" />
           <geom name="left_hip_pitch_visual" type="mesh" mesh="left_hip_pitch_link" pos="0 0 0" quat="1 0 0 0" rgba="1 1 1 1" contype="0" conaffinity="0" group="1" />
           <geom name="left_hip_pitch_collision" type="mesh" mesh="left_hip_pitch_link" pos="0 0 0" quat="1 0 0 0" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" />
@@ -62,7 +62,7 @@
         <geom name="right_roll_visual" type="mesh" mesh="right_roll_link" pos="0 0 0" quat="1 0 0 0" rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" contype="0" conaffinity="0" group="1" />
         <geom name="right_roll_collision" type="mesh" mesh="right_roll_link" pos="0 0 0" quat="1 0 0 0" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" />
         <body name="right_hip_pitch_link" pos="0.069997 0.0010952 0.060082" quat="0.707105482511 0 0.707108079859 0">
-          <joint name="right_hip_pitch_joint" type="hinge" axis="0 0 1" damping="0.1" range="-3.14 3.14" />
+          <joint name="right_hip_pitch_joint" type="hinge" axis="0 0 1" damping="0.1" range="-1.22 0.87" />
           <inertial pos="-0.054939674268 -0.0409954166794 0.0324790691623" mass="1.7219945" fullinertia="0.0068882 0.0092514 0.0138884 -0.0060720 0.0017370 0.0013144" />
           <geom name="right_hip_pitch_visual" type="mesh" mesh="right_hip_pitch_link" pos="0 0 0" quat="1 0 0 0" rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" contype="0" conaffinity="0" group="1" />
           <geom name="right_hip_pitch_collision" type="mesh" mesh="right_hip_pitch_link" pos="0 0 0" quat="1 0 0 0" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" />
@@ -82,6 +82,19 @@
       </body>
     </body>
   </worldbody>
+  <actuator>
+    <motor name="left_roll_joint_motor" joint="left_roll_joint" gear="1" ctrllimited="true" ctrlrange="-20 20" />
+    <motor name="left_hip_pitch_joint_motor" joint="left_hip_pitch_joint" gear="1" ctrllimited="true" ctrlrange="-30 30" />
+    <motor name="left_knee_joint_motor" joint="left_knee_joint" gear="1" ctrllimited="true" ctrlrange="-30 30" />
+    <motor name="left_wheel_joint_motor" joint="left_wheel_joint" gear="1" ctrllimited="true" ctrlrange="-10 10" />
+    <motor name="right_roll_joint_motor" joint="right_roll_joint" gear="1" ctrllimited="true" ctrlrange="-20 20" />
+    <motor name="right_hip_pitch_joint_motor" joint="right_hip_pitch_joint" gear="1" ctrllimited="true" ctrlrange="-30 30" />
+    <motor name="right_knee_joint_motor" joint="right_knee_joint" gear="1" ctrllimited="true" ctrlrange="-30 30" />
+    <motor name="right_wheel_joint_motor" joint="right_wheel_joint" gear="1" ctrllimited="true" ctrlrange="-10 10" />
+  </actuator>
+  <equality>
+    <weld name="fixed_base_weld" body1="world" body2="base_link" active="false" />
+  </equality>
   <keyframe>
     <key name="home" qpos="0 0 0.343355956377 1 0 0 0 0 0 0 0 0 0 0 0" />
   </keyframe>

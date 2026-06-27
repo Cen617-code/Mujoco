@@ -1,4 +1,4 @@
-"""Convert the project's eight-joint URDF to a passive native MuJoCo model."""
+"""Convert the project's eight-joint URDF to a native MuJoCo model."""
 
 from __future__ import annotations
 
@@ -34,6 +34,29 @@ EXPECTED_JOINTS = {
     "right_hip_pitch_joint",
     "right_knee_joint",
     "right_wheel_joint",
+}
+CONTROLLED_JOINTS = [
+    "left_roll_joint",
+    "left_hip_pitch_joint",
+    "left_knee_joint",
+    "left_wheel_joint",
+    "right_roll_joint",
+    "right_hip_pitch_joint",
+    "right_knee_joint",
+    "right_wheel_joint",
+]
+
+HIP_PITCH_RANGE = (-1.22, 0.87)
+
+TORQUE_LIMITS = {
+    "left_roll_joint": (-20.0, 20.0),
+    "right_roll_joint": (-20.0, 20.0),
+    "left_hip_pitch_joint": (-30.0, 30.0),
+    "right_hip_pitch_joint": (-30.0, 30.0),
+    "left_knee_joint": (-30.0, 30.0),
+    "right_knee_joint": (-30.0, 30.0),
+    "left_wheel_joint": (-10.0, 10.0),
+    "right_wheel_joint": (-10.0, 10.0),
 }
 
 
@@ -99,7 +122,7 @@ def _mesh_min_z(model: mujoco.MjModel, data: mujoco.MjData, geom_name: str) -> f
 
 
 def convert_urdf(source: Path, output: Path) -> Path:
-    """Validate source, generate a native passive MJCF model, and return output."""
+    """Validate source, generate a native MJCF model, and return output."""
     source = Path(source).resolve()
     output = Path(output).resolve()
     if not source.is_file():
@@ -229,7 +252,11 @@ def convert_urdf(source: Path, output: Path) -> Path:
                 limit = _required_child(joint, "limit", f"joint {joint_name}")
                 if limit.get("lower") is None or limit.get("upper") is None:
                     raise ValueError(f"Revolute joint {joint_name} is missing its range")
-                joint_attributes["range"] = f"{limit.get('lower')} {limit.get('upper')}"
+                corrected_joint_name = corrected_name(joint_name)
+                if corrected_joint_name in {"left_hip_pitch_joint", "right_hip_pitch_joint"}:
+                    joint_attributes["range"] = _format(HIP_PITCH_RANGE)
+                else:
+                    joint_attributes["range"] = f"{limit.get('lower')} {limit.get('upper')}"
             ET.SubElement(body, "joint", joint_attributes)
 
         link = links[link_name]
@@ -303,6 +330,31 @@ def convert_urdf(source: Path, output: Path) -> Path:
         return body
 
     base_body = add_link("base_link", worldbody)
+    actuator = ET.SubElement(model_root, "actuator")
+    for joint_name in CONTROLLED_JOINTS:
+        lower, upper = TORQUE_LIMITS[joint_name]
+        ET.SubElement(
+            actuator,
+            "motor",
+            {
+                "name": f"{joint_name}_motor",
+                "joint": joint_name,
+                "gear": "1",
+                "ctrllimited": "true",
+                "ctrlrange": _format([lower, upper]),
+            },
+        )
+    equality = ET.SubElement(model_root, "equality")
+    ET.SubElement(
+        equality,
+        "weld",
+        {
+            "name": "fixed_base_weld",
+            "body1": "world",
+            "body2": "base_link",
+            "active": "false",
+        },
+    )
     tree = ET.ElementTree(model_root)
     _write(tree, output)
 
