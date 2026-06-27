@@ -53,6 +53,18 @@ def test_base_pitch_reads_free_joint_quaternion(model):
     assert base_pitch(data) == pytest.approx(0.15, abs=1e-9)
 
 
+def test_base_imu_pitch_matches_freejoint_pitch(model):
+    data = mujoco.MjData(model)
+    data.qpos[:] = model.qpos0
+    data.qvel[:] = 0.0
+    data.qpos[3:7] = quat_y_rotation(0.12)
+    mujoco.mj_forward(model, data)
+    from scripts.balance_control import base_pitch_from_imu, has_base_imu
+
+    assert has_base_imu(model)
+    assert base_pitch_from_imu(model, data) == pytest.approx(base_pitch(data), abs=1e-8)
+
+
 def test_base_pitch_rate_uses_near_upright_free_joint_angular_y(model):
     data = mujoco.MjData(model)
     data.qvel[:] = 0.0
@@ -78,6 +90,28 @@ def test_balance_torque_direction_and_saturation(model):
     assert ctrl[right_wheel.actuator_id] == pytest.approx(
         model.actuator_ctrlrange[right_wheel.actuator_id, 1]
     )
+
+
+def test_balance_controller_prefers_imu_pitch(model, monkeypatch):
+    data = mujoco.MjData(model)
+    data.qpos[:] = model.qpos0
+    data.qvel[:] = 0.0
+    data.qpos[3:7] = quat_y_rotation(0.1)
+    mujoco.mj_forward(model, data)
+    joint_map = build_joint_map(model)
+
+    import scripts.balance_control as balance_control
+
+    calls = {"imu": 0}
+    original = balance_control.base_pitch_from_imu
+
+    def recording_pitch_from_imu(model_arg, data_arg):
+        calls["imu"] += 1
+        return original(model_arg, data_arg)
+
+    monkeypatch.setattr(balance_control, "base_pitch_from_imu", recording_pitch_from_imu)
+    compute_balance_control(model, data, joint_map, BalanceConfig())
+    assert calls["imu"] == 1
 
 
 def test_negative_pitch_saturates_wheel_torque_to_upper_limit(model):

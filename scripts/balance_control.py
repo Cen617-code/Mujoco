@@ -28,6 +28,9 @@ WHEEL_ACTUATOR_SIGNS = {
     "left_wheel_joint": 1.0,
     "right_wheel_joint": -1.0,
 }
+BASE_IMU_GYRO = "base_imu_gyro"
+BASE_IMU_ACCEL = "base_imu_accel"
+BASE_IMU_QUAT = "base_imu_quat"
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,44 @@ def base_pitch_rate(data: mujoco.MjData) -> float:
     return float(data.qvel[4])
 
 
+def sensor_slice(model: mujoco.MjModel, sensor_name: str) -> slice:
+    sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_name)
+    if sensor_id < 0:
+        raise ValueError(f"Model is missing sensor {sensor_name!r}")
+    start = int(model.sensor_adr[sensor_id])
+    stop = start + int(model.sensor_dim[sensor_id])
+    return slice(start, stop)
+
+
+def has_base_imu(model: mujoco.MjModel) -> bool:
+    return (
+        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, BASE_IMU_GYRO) >= 0
+        and mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, BASE_IMU_QUAT) >= 0
+    )
+
+
+def base_imu_quat(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
+    values = data.sensordata[sensor_slice(model, BASE_IMU_QUAT)]
+    if values.shape[0] != 4:
+        raise ValueError("base_imu_quat must have dimension 4")
+    return np.asarray(values, dtype=float)
+
+
+def base_imu_gyro(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
+    values = data.sensordata[sensor_slice(model, BASE_IMU_GYRO)]
+    if values.shape[0] != 3:
+        raise ValueError("base_imu_gyro must have dimension 3")
+    return np.asarray(values, dtype=float)
+
+
+def base_pitch_from_imu(model: mujoco.MjModel, data: mujoco.MjData) -> float:
+    return quat_to_pitch(base_imu_quat(model, data))
+
+
+def base_pitch_rate_from_imu(model: mujoco.MjModel, data: mujoco.MjData) -> float:
+    return float(base_imu_gyro(model, data)[1])
+
+
 def default_balance_config() -> BalanceConfig:
     return BalanceConfig()
 
@@ -104,8 +145,12 @@ def compute_balance_control(
         lower, upper = _actuator_limits(model, entry)
         ctrl[entry.actuator_id] = np.clip(tau, lower, upper)
 
-    pitch = base_pitch(data)
-    pitch_rate = base_pitch_rate(data)
+    if has_base_imu(model):
+        pitch = base_pitch_from_imu(model, data)
+        pitch_rate = base_pitch_rate_from_imu(model, data)
+    else:
+        pitch = base_pitch(data)
+        pitch_rate = base_pitch_rate(data)
     x = float(data.qpos[0])
     x_velocity = float(data.qvel[0])
     x_target = x if config.x_target is None else float(config.x_target)
