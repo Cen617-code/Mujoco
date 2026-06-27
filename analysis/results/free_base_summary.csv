@@ -1,0 +1,2 @@
+duration,timestep,steps,warning_count,peak_abs_qvel,peak_abs_ctrl,final_base_height
+1.0,0.001,1000,0,9.322121149234144,11.952425826217112,0.13984730441863605
