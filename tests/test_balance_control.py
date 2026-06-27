@@ -72,6 +72,20 @@ def test_base_pitch_rate_uses_near_upright_free_joint_angular_y(model):
     assert base_pitch_rate(data) == pytest.approx(0.3)
 
 
+def test_base_imu_pitch_rate_matches_freejoint_pitch_rate(model):
+    data = mujoco.MjData(model)
+    data.qpos[:] = model.qpos0
+    data.qvel[:] = 0.0
+    data.qvel[4] = 0.23
+    mujoco.mj_forward(model, data)
+    from scripts.balance_control import base_pitch_rate_from_imu, has_base_imu
+
+    assert has_base_imu(model)
+    assert base_pitch_rate_from_imu(model, data) == pytest.approx(
+        base_pitch_rate(data), abs=1e-8
+    )
+
+
 def test_balance_torque_direction_and_saturation(model):
     data = mujoco.MjData(model)
     data.qpos[:] = model.qpos0
