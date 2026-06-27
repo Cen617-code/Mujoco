@@ -78,3 +78,60 @@ def test_robot_xml_contains_motor_and_weld_elements(model):
     assert [motor.get("name") for motor in motors] == [f"{joint}_motor" for joint in CONTROLLED_JOINTS]
     welds = root.findall("equality/weld")
     assert any(weld.get("name") == "fixed_base_weld" for weld in welds)
+
+
+from scripts.pd_control import (
+    CONTROLLED_JOINTS as PD_CONTROLLED_JOINTS,
+    build_joint_map,
+    clip_targets_to_joint_limits,
+    compute_pd_control,
+    default_pd_gains,
+    set_base_weld_active,
+)
+
+
+def test_pd_joint_order_matches_actuator_order(model):
+    assert PD_CONTROLLED_JOINTS == CONTROLLED_JOINTS
+    joint_map = build_joint_map(model)
+    assert [entry.joint_name for entry in joint_map] == CONTROLLED_JOINTS
+    assert [entry.actuator_id for entry in joint_map] == list(range(8))
+
+
+def test_pd_target_clipping_and_torque_saturation(model):
+    data = mujoco.MjData(model)
+    joint_map = build_joint_map(model)
+    raw_targets = {entry.joint_name: 100.0 for entry in joint_map}
+    clipped = clip_targets_to_joint_limits(model, joint_map, raw_targets)
+    assert clipped["left_hip_pitch_joint"] == pytest.approx(0.87)
+    assert clipped["right_hip_pitch_joint"] == pytest.approx(0.87)
+    assert clipped["left_wheel_joint"] == pytest.approx(100.0)
+    gains = {entry.joint_name: (1_000.0, 0.0) for entry in joint_map}
+    ctrl = compute_pd_control(model, data, joint_map, clipped, gains)
+    assert ctrl.shape == (8,)
+    assert np.all(ctrl <= model.actuator_ctrlrange[:, 1] + 1e-12)
+    assert np.all(ctrl >= model.actuator_ctrlrange[:, 0] - 1e-12)
+    assert ctrl[1] == pytest.approx(30.0)
+    assert ctrl[5] == pytest.approx(30.0)
+    assert ctrl[3] == pytest.approx(10.0)
+    assert ctrl[7] == pytest.approx(10.0)
+
+
+def test_default_pd_gains_are_positive_and_finite(model):
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    gains = default_pd_gains(model, data)
+    assert set(gains) == set(CONTROLLED_JOINTS)
+    for kp, kd in gains.values():
+        assert np.isfinite(kp)
+        assert np.isfinite(kd)
+        assert kp > 0
+        assert kd > 0
+
+
+def test_base_weld_can_be_toggled(model):
+    data = mujoco.MjData(model)
+    set_base_weld_active(model, data, True)
+    equality_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_EQUALITY, "fixed_base_weld")
+    assert data.eq_active[equality_id] == 1
+    set_base_weld_active(model, data, False)
+    assert data.eq_active[equality_id] == 0
