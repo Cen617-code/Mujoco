@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Sequence
 
@@ -81,6 +81,10 @@ def run_balance_simulation(
     data.qvel[:] = 0.0
     data.ctrl[:] = 0.0
     set_base_weld_active(model, data, False)
+    if config is None:
+        config = BalanceConfig(x_target=float(data.qpos[0]))
+    elif config.x_target is None:
+        config = replace(config, x_target=float(data.qpos[0]))
     joint_map = build_joint_map(model)
     timestep = float(model.opt.timestep)
     steps = max(1, int(np.ceil(float(duration) / timestep)))

@@ -29,7 +29,7 @@ def run_viewer(model_path: Path, duration: float | None = None) -> None:
     data.qvel[:] = 0.0
     set_base_weld_active(model, data, False)
     joint_map = build_joint_map(model)
-    config = BalanceConfig()
+    config = BalanceConfig(x_target=float(data.qpos[0]))
     start = time.time()
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():

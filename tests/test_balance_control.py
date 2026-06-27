@@ -7,6 +7,7 @@ import mujoco
 import numpy as np
 import pytest
 
+import scripts.analyze_balance as analyze_balance
 from scripts.convert_urdf_to_mjcf import convert_urdf
 from scripts.pd_control import build_joint_map
 from scripts.balance_control import (
@@ -79,6 +80,26 @@ def test_balance_torque_direction_and_saturation(model):
     )
 
 
+def test_negative_pitch_saturates_wheel_torque_to_upper_limit(model):
+    data = mujoco.MjData(model)
+    data.qpos[:] = model.qpos0
+    data.qvel[:] = 0.0
+    data.qpos[3:7] = quat_y_rotation(-0.2)
+    mujoco.mj_forward(model, data)
+    joint_map = build_joint_map(model)
+    config = BalanceConfig(kp_pitch=100.0, kd_pitch=0.0, kx=0.0, kv=0.0)
+    ctrl, state = compute_balance_control(model, data, joint_map, config)
+    left_wheel = next(entry for entry in joint_map if entry.joint_name == "left_wheel_joint")
+    right_wheel = next(entry for entry in joint_map if entry.joint_name == "right_wheel_joint")
+    assert state.pitch == pytest.approx(-0.2, abs=1e-9)
+    assert ctrl[left_wheel.actuator_id] == pytest.approx(
+        model.actuator_ctrlrange[left_wheel.actuator_id, 1]
+    )
+    assert ctrl[right_wheel.actuator_id] == pytest.approx(
+        model.actuator_ctrlrange[right_wheel.actuator_id, 1]
+    )
+
+
 def test_leg_joints_receive_posture_pd_torques(model):
     data = mujoco.MjData(model)
     data.qpos[:] = model.qpos0
@@ -113,6 +134,35 @@ def test_balance_simulation_runs_finite(model):
     assert len(result.timeseries) == result.steps
     assert result.peak_abs_wheel_torque <= 10.0 + 1e-9
     assert np.isfinite(result.final_pitch)
+
+
+def test_balance_simulation_defaults_none_x_target_to_initial_base_x(model, monkeypatch):
+    captured_x_targets: list[float | None] = []
+    original_apply_balance_control = analyze_balance.apply_balance_control
+
+    def recording_apply_balance_control(
+        model_arg,
+        data,
+        joint_map,
+        config=None,
+        leg_targets=None,
+    ):
+        captured_x_targets.append(None if config is None else config.x_target)
+        return original_apply_balance_control(model_arg, data, joint_map, config, leg_targets)
+
+    monkeypatch.setattr(
+        analyze_balance,
+        "apply_balance_control",
+        recording_apply_balance_control,
+    )
+    result = run_balance_simulation(model, duration=0.01, config=BalanceConfig(kx=1.0))
+
+    assert result.finite
+    assert captured_x_targets
+    assert all(
+        x_target == pytest.approx(float(model.qpos0[0]))
+        for x_target in captured_x_targets
+    )
 
 
 def test_balance_simulation_summary_matches_final_sample(model):
