@@ -29,6 +29,7 @@
     <geom name="floor" type="plane" size="0 0 0.1" friction="1.0 0.005 0.0001" />
     <body name="base_link" pos="0 0 0.343355956377">
       <freejoint name="base_freejoint" />
+      <site name="base_imu_site" pos="0 0 0.08" size="0.015" rgba="0 0.7 1 1" />
       <inertial pos="-0.00172337629744 0.00351501964247 0.116696890658" mass="7.5370707" fullinertia="0.0553404 0.0981545 0.1037058 -0.0003341 -0.0050779 -0.0000237" />
       <geom name="base_visual" type="mesh" mesh="base_link" pos="0 0 0" quat="1 0 0 0" rgba="1 1 1 1" contype="0" conaffinity="0" group="1" />
       <geom name="base_collision" type="mesh" mesh="base_link" pos="0 0 0" quat="1 0 0 0" rgba="0 0 0 0" contype="1" conaffinity="1" group="3" />
@@ -95,6 +96,11 @@
   <equality>
     <weld name="fixed_base_weld" body1="world" body2="base_link" active="false" />
   </equality>
+  <sensor>
+    <gyro name="base_imu_gyro" site="base_imu_site" />
+    <accelerometer name="base_imu_accel" site="base_imu_site" />
+    <framequat name="base_imu_quat" objtype="site" objname="base_imu_site" />
+  </sensor>
   <keyframe>
     <key name="home" qpos="0 0 0.343355956377 1 0 0 0 0 0 0 0 0 0 0 0" />
   </keyframe>

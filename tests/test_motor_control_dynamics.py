@@ -75,6 +75,30 @@ def test_base_weld_equality_exists_for_analysis(model):
     assert equality_id >= 0
 
 
+def test_base_imu_site_and_sensors_exist(model):
+    site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "base_imu_site")
+    assert site_id >= 0
+    assert np.allclose(model.site_pos[site_id], [0.0, 0.0, 0.08])
+
+    expected = {
+        "base_imu_gyro": 3,
+        "base_imu_accel": 3,
+        "base_imu_quat": 4,
+    }
+    for sensor_name, sensor_dim in expected.items():
+        sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_name)
+        assert sensor_id >= 0
+        assert model.sensor_dim[sensor_id] == sensor_dim
+
+
+def test_base_imu_sensor_data_is_finite(model):
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    assert model.nsensor >= 3
+    assert model.nsensordata >= 10
+    assert np.isfinite(data.sensordata).all()
+
+
 def test_robot_xml_contains_motor_and_weld_elements(model):
     root = ET.parse(OUTPUT).getroot()
     motors = root.findall("actuator/motor")

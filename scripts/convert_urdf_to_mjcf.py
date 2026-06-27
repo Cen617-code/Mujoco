@@ -258,6 +258,17 @@ def convert_urdf(source: Path, output: Path) -> Path:
                 else:
                     joint_attributes["range"] = f"{limit.get('lower')} {limit.get('upper')}"
             ET.SubElement(body, "joint", joint_attributes)
+        if link_name == "base_link":
+            ET.SubElement(
+                body,
+                "site",
+                {
+                    "name": "base_imu_site",
+                    "pos": "0 0 0.08",
+                    "size": "0.015",
+                    "rgba": "0 0.7 1 1",
+                },
+            )
 
         link = links[link_name]
         inertial = _required_child(link, "inertial", f"link {link_name}")
@@ -353,6 +364,18 @@ def convert_urdf(source: Path, output: Path) -> Path:
             "body1": "world",
             "body2": "base_link",
             "active": "false",
+        },
+    )
+    sensor = ET.SubElement(model_root, "sensor")
+    ET.SubElement(sensor, "gyro", {"name": "base_imu_gyro", "site": "base_imu_site"})
+    ET.SubElement(sensor, "accelerometer", {"name": "base_imu_accel", "site": "base_imu_site"})
+    ET.SubElement(
+        sensor,
+        "framequat",
+        {
+            "name": "base_imu_quat",
+            "objtype": "site",
+            "objname": "base_imu_site",
         },
     )
     tree = ET.ElementTree(model_root)
