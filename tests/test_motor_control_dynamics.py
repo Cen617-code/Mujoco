@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 import mujoco
@@ -135,3 +137,107 @@ def test_base_weld_can_be_toggled(model):
     assert data.eq_active[equality_id] == 1
     set_base_weld_active(model, data, False)
     assert data.eq_active[equality_id] == 0
+
+
+from scripts.analyze_dynamics import (
+    FreeBaseResult,
+    StepMetric,
+    StepResponseResult,
+    run_fixed_base_step_response,
+    run_free_base_posture_check,
+    write_results,
+)
+
+
+def test_fixed_base_step_response_runs_finite(model):
+    result = run_fixed_base_step_response(model, duration=0.25, step_size=0.05, wheel_step_size=0.1)
+    assert len(result.metrics) == 8
+    for metric in result.metrics:
+        assert metric.joint_name in CONTROLLED_JOINTS
+        assert np.isfinite(metric.final_position)
+        assert np.isfinite(metric.steady_state_error)
+        assert np.isfinite(metric.peak_torque)
+        assert 0.0 <= metric.saturation_fraction <= 1.0
+    assert result.warning_count == 0
+
+
+def test_free_base_posture_check_runs_finite(model):
+    result = run_free_base_posture_check(model, duration=0.25)
+    assert result.steps > 0
+    assert result.warning_count == 0
+    assert np.isfinite(result.peak_abs_qvel)
+    assert np.isfinite(result.peak_abs_ctrl)
+    assert result.peak_abs_ctrl <= 30.0 + 1e-9
+
+
+def test_write_results_uses_planned_artifact_names(tmp_path):
+    step_result = StepResponseResult(
+        duration=0.25,
+        timestep=0.001,
+        warning_count=0,
+        metrics=[
+            StepMetric(
+                joint_name="left_roll_joint",
+                target_position=0.05,
+                final_position=0.04,
+                steady_state_error=0.01,
+                peak_torque=1.5,
+                saturation_fraction=0.0,
+            )
+        ],
+        traces={
+            "left_roll_joint": {
+                "time": [0.0],
+                "position": [0.04],
+                "torque": [1.5],
+                "target": [0.05],
+            }
+        },
+    )
+    free_result = FreeBaseResult(
+        duration=0.25,
+        timestep=0.001,
+        steps=250,
+        warning_count=0,
+        peak_abs_qvel=0.2,
+        peak_abs_ctrl=1.5,
+        final_base_height=0.3,
+    )
+
+    output_dir = write_results(step_result, free_result, tmp_path)
+
+    assert output_dir == tmp_path
+    assert (tmp_path / "step_response_metrics.csv").is_file()
+    assert (tmp_path / "free_base_summary.csv").is_file()
+    assert (tmp_path / "dynamics_report.md").is_file()
+    assert not (tmp_path / "summary.json").exists()
+    assert not (tmp_path / "step_metrics.csv").exists()
+    assert not (tmp_path / "report.md").exists()
+    assert "left_roll_joint" in (tmp_path / "step_response_metrics.csv").read_text()
+    assert "peak_abs_qvel" in (tmp_path / "free_base_summary.csv").read_text()
+    assert "Free-base posture check" in (tmp_path / "dynamics_report.md").read_text()
+
+
+def test_analyze_dynamics_direct_script_cli_writes_planned_artifacts(tmp_path):
+    script = ROOT / "scripts" / "analyze_dynamics.py"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--duration",
+            "0.05",
+            "--output-dir",
+            str(tmp_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert (tmp_path / "step_response_metrics.csv").is_file()
+    assert (tmp_path / "free_base_summary.csv").is_file()
+    report = (tmp_path / "dynamics_report.md").read_text()
+    assert "Balance control is not implemented" in report
+    assert "free-base falling is allowed" in report
