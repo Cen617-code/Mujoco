@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path
 
 import mujoco
@@ -103,8 +104,25 @@ def test_balance_simulation_runs_finite(model):
     assert result.warning_count == 0
     assert result.finite
     assert result.steps > 0
+    assert len(result.timeseries) == result.steps
     assert result.peak_abs_wheel_torque <= 10.0 + 1e-9
     assert np.isfinite(result.final_pitch)
+
+
+def test_balance_simulation_summary_matches_final_sample(model):
+    result = run_balance_simulation(model, duration=0.25)
+    final_sample = result.timeseries[-1]
+    assert result.final_pitch == pytest.approx(final_sample["pitch"])
+    assert result.final_base_height == pytest.approx(final_sample["base_height"])
+    assert result.peak_abs_pitch == pytest.approx(
+        max(abs(sample["pitch"]) for sample in result.timeseries)
+    )
+    assert result.peak_abs_pitch_rate == pytest.approx(
+        max(abs(sample["pitch_rate"]) for sample in result.timeseries)
+    )
+    assert result.peak_abs_wheel_torque == pytest.approx(
+        max(abs(sample["wheel_torque"]) for sample in result.timeseries)
+    )
 
 
 def test_write_balance_results_outputs_planned_files(model, tmp_path):
@@ -116,3 +134,15 @@ def test_write_balance_results_outputs_planned_files(model, tmp_path):
     report = (tmp_path / "balance_report.md").read_text(encoding="utf-8")
     assert "Balance Control Analysis" in report
     assert "not walking" in report
+    with (tmp_path / "balance_timeseries.csv").open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        assert reader.fieldnames == [
+            "time",
+            "pitch",
+            "pitch_rate",
+            "x",
+            "x_velocity",
+            "wheel_torque",
+            "base_height",
+        ]
+        assert len(list(reader)) == result.steps

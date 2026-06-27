@@ -15,7 +15,13 @@ import numpy as np
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.balance_control import BalanceConfig, apply_balance_control
+from scripts.balance_control import (
+    BalanceConfig,
+    BalanceState,
+    apply_balance_control,
+    base_pitch,
+    base_pitch_rate,
+)
 from scripts.convert_urdf_to_mjcf import ROOT, convert_urdf
 from scripts.pd_control import build_joint_map, set_base_weld_active
 
@@ -52,6 +58,16 @@ def _finite(data: mujoco.MjData, ctrl: np.ndarray) -> bool:
     )
 
 
+def _sample_balance_state(data: mujoco.MjData, wheel_torque: float) -> BalanceState:
+    return BalanceState(
+        pitch=base_pitch(data),
+        pitch_rate=base_pitch_rate(data),
+        x=float(data.qpos[0]),
+        x_velocity=float(data.qvel[0]),
+        wheel_torque=float(wheel_torque),
+    )
+
+
 def run_balance_simulation(
     model: mujoco.MjModel,
     duration: float = 2.0,
@@ -68,14 +84,13 @@ def run_balance_simulation(
     steps = max(1, int(np.ceil(float(duration) / timestep)))
     finite = True
     timeseries: list[dict[str, float]] = []
-    peak_abs_pitch = 0.0
-    peak_abs_pitch_rate = 0.0
-    peak_abs_wheel_torque = 0.0
-    final_pitch = 0.0
 
     for _ in range(steps):
-        ctrl, state = apply_balance_control(model, data, joint_map, config)
+        ctrl, applied_state = apply_balance_control(model, data, joint_map, config)
         finite = finite and _finite(data, ctrl)
+        mujoco.mj_step(model, data)
+        finite = finite and _finite(data, ctrl)
+        state = _sample_balance_state(data, applied_state.wheel_torque)
         timeseries.append(
             {
                 "time": float(data.time),
@@ -87,12 +102,8 @@ def run_balance_simulation(
                 "base_height": float(data.qpos[2]),
             }
         )
-        peak_abs_pitch = max(peak_abs_pitch, abs(state.pitch))
-        peak_abs_pitch_rate = max(peak_abs_pitch_rate, abs(state.pitch_rate))
-        peak_abs_wheel_torque = max(peak_abs_wheel_torque, abs(state.wheel_torque))
-        final_pitch = state.pitch
-        mujoco.mj_step(model, data)
-        finite = finite and _finite(data, ctrl)
+
+    final_sample = timeseries[-1]
 
     return BalanceSimulationResult(
         duration=float(duration),
@@ -100,11 +111,11 @@ def run_balance_simulation(
         steps=steps,
         warning_count=_warning_count(data),
         finite=finite,
-        peak_abs_pitch=peak_abs_pitch,
-        final_pitch=final_pitch,
-        peak_abs_pitch_rate=peak_abs_pitch_rate,
-        peak_abs_wheel_torque=peak_abs_wheel_torque,
-        final_base_height=float(data.qpos[2]),
+        peak_abs_pitch=max(abs(sample["pitch"]) for sample in timeseries),
+        final_pitch=final_sample["pitch"],
+        peak_abs_pitch_rate=max(abs(sample["pitch_rate"]) for sample in timeseries),
+        peak_abs_wheel_torque=max(abs(sample["wheel_torque"]) for sample in timeseries),
+        final_base_height=final_sample["base_height"],
         timeseries=timeseries,
     )
 
