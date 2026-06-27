@@ -55,6 +55,11 @@ def quat_to_pitch(quat_wxyz) -> float:
     return float(np.arcsin(np.clip(value, -1.0, 1.0)))
 
 
+# The base free joint occupies qpos[0:7] as [x, y, z, qw, qx, qy, qz] and
+# qvel[0:6] as [vx, vy, vz, wx, wy, wz] in this model. Positive pitch is a
+# positive rotation about the base/world Y axis near the upright pose.
+# base_pitch_rate() uses angular Y velocity (qvel[4]) as a near-upright,
+# first-pass balance convention.
 def base_pitch(data: mujoco.MjData) -> float:
     return quat_to_pitch(data.qpos[3:7])
 

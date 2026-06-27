@@ -10,6 +10,7 @@ from scripts.balance_control import (
     BalanceConfig,
     apply_balance_control,
     base_pitch,
+    base_pitch_rate,
     compute_balance_control,
     quat_to_pitch,
 )
@@ -43,6 +44,13 @@ def test_base_pitch_reads_free_joint_quaternion(model):
     assert base_pitch(data) == pytest.approx(0.15, abs=1e-9)
 
 
+def test_base_pitch_rate_uses_near_upright_free_joint_angular_y(model):
+    data = mujoco.MjData(model)
+    data.qvel[:] = 0.0
+    data.qvel[4] = 0.3
+    assert base_pitch_rate(data) == pytest.approx(0.3)
+
+
 def test_balance_torque_direction_and_saturation(model):
     data = mujoco.MjData(model)
     data.qpos[:] = model.qpos0
@@ -55,8 +63,12 @@ def test_balance_torque_direction_and_saturation(model):
     left_wheel = next(entry for entry in joint_map if entry.joint_name == "left_wheel_joint")
     right_wheel = next(entry for entry in joint_map if entry.joint_name == "right_wheel_joint")
     assert state.pitch == pytest.approx(0.2, abs=1e-9)
-    assert ctrl[left_wheel.actuator_id] == pytest.approx(-10.0)
-    assert ctrl[right_wheel.actuator_id] == pytest.approx(-10.0)
+    assert ctrl[left_wheel.actuator_id] == pytest.approx(
+        model.actuator_ctrlrange[left_wheel.actuator_id, 0]
+    )
+    assert ctrl[right_wheel.actuator_id] == pytest.approx(
+        model.actuator_ctrlrange[right_wheel.actuator_id, 0]
+    )
 
 
 def test_leg_joints_receive_posture_pd_torques(model):
