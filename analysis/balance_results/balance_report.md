@@ -4,11 +4,11 @@
 - Steps: 2000
 - MuJoCo warnings: 0
 - Finite state: True
-- Peak |pitch|: 1.09808 rad
-- Final pitch: 0.485478 rad
-- Peak |pitch rate|: 5.55711 rad/s
+- Peak |pitch|: 1.56235 rad
+- Final pitch: 1.2628 rad
+- Peak |pitch rate|: 10.7258 rad/s
 - Peak |wheel torque|: 10 N·m
-- Final base height: 0.11829 m
+- Final base height: 0.126348 m
 
 This is a first-pass in-place balance prototype, not walking or trajectory tracking.
 

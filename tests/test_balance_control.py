@@ -76,7 +76,7 @@ def test_balance_torque_direction_and_saturation(model):
         model.actuator_ctrlrange[left_wheel.actuator_id, 0]
     )
     assert ctrl[right_wheel.actuator_id] == pytest.approx(
-        model.actuator_ctrlrange[right_wheel.actuator_id, 0]
+        model.actuator_ctrlrange[right_wheel.actuator_id, 1]
     )
 
 
@@ -96,7 +96,7 @@ def test_negative_pitch_saturates_wheel_torque_to_upper_limit(model):
         model.actuator_ctrlrange[left_wheel.actuator_id, 1]
     )
     assert ctrl[right_wheel.actuator_id] == pytest.approx(
-        model.actuator_ctrlrange[right_wheel.actuator_id, 1]
+        model.actuator_ctrlrange[right_wheel.actuator_id, 0]
     )
 
 

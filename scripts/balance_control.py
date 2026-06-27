@@ -24,6 +24,10 @@ LEG_JOINTS = {
     "right_knee_joint",
 }
 WHEEL_JOINTS = {"left_wheel_joint", "right_wheel_joint"}
+WHEEL_ACTUATOR_SIGNS = {
+    "left_wheel_joint": 1.0,
+    "right_wheel_joint": -1.0,
+}
 
 
 @dataclass(frozen=True)
@@ -116,8 +120,13 @@ def compute_balance_control(
         if entry.joint_name not in WHEEL_JOINTS:
             continue
         lower, upper = _actuator_limits(model, entry)
-        ctrl[entry.actuator_id] = np.clip(tau_balance, lower, upper)
-        wheel_torque = float(ctrl[entry.actuator_id])
+        # The left and right wheel joint axes are mirrored in world coordinates
+        # (+Y for left, -Y for right near the home pose). Opposite actuator
+        # signs therefore produce the same physical pitch-balancing wheel
+        # torque direction.
+        signed_tau = WHEEL_ACTUATOR_SIGNS[entry.joint_name] * tau_balance
+        ctrl[entry.actuator_id] = np.clip(signed_tau, lower, upper)
+        wheel_torque = max(wheel_torque, abs(float(ctrl[entry.actuator_id])))
 
     state = BalanceState(
         pitch=float(pitch),
