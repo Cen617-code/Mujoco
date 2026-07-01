@@ -1,4 +1,8 @@
-"""Run the MuJoCo viewer with the Python body balance controller."""
+"""Run the MuJoCo viewer with the Python body balance controller.
+
+直接用 ``python -m mujoco.viewer --mjcf=...`` 只能看被动 XML。
+这个脚本在 viewer 循环里每步调用 Python 平衡控制器，所以能看到受控仿真。
+"""
 
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ from scripts.pd_control import build_joint_map, set_base_weld_active
 
 
 def run_viewer(model_path: Path, duration: float | None = None) -> None:
+    """加载模型，关闭固定基座 weld，并在 viewer 循环中实时写入控制力矩。"""
     model = mujoco.MjModel.from_xml_path(str(model_path))
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
@@ -33,6 +38,7 @@ def run_viewer(model_path: Path, duration: float | None = None) -> None:
     start = time.time()
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
+            # launch_passive 不会自动推进仿真；这里手动控制、step、sync。
             apply_balance_control(model, data, joint_map, config)
             mujoco.mj_step(model, data)
             if not (np.isfinite(data.qpos).all() and np.isfinite(data.qvel).all()):

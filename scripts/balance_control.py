@@ -1,4 +1,8 @@
-"""First-pass body pitch balance controller for the wheeled biped."""
+"""First-pass body pitch balance controller for the wheeled biped.
+
+当前控制器是“原地 pitch 平衡原型”：腿部关节用 PD 保持名义姿态，两个轮子
+用差异化符号的力矩调机身俯仰。它还不是完整行走/速度/轨迹控制器。
+"""
 
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ WHEEL_ACTUATOR_SIGNS = {
     "left_wheel_joint": 1.0,
     "right_wheel_joint": -1.0,
 }
+# IMU 名称和 converter 生成的 MJCF sensor 保持一致。
 BASE_IMU_GYRO = "base_imu_gyro"
 BASE_IMU_ACCEL = "base_imu_accel"
 BASE_IMU_QUAT = "base_imu_quat"
@@ -35,6 +40,11 @@ BASE_IMU_QUAT = "base_imu_quat"
 
 @dataclass(frozen=True)
 class BalanceConfig:
+    """机身平衡控制参数。
+
+    pitch/x 相关增益作用在轮子上；leg_kp/leg_kd 作用在 6 个腿部关节上。
+    """
+
     pitch_target: float = 0.0
     pitch_rate_target: float = 0.0
     x_target: float | None = None
@@ -49,6 +59,8 @@ class BalanceConfig:
 
 @dataclass(frozen=True)
 class BalanceState:
+    """一次控制计算后用于记录/分析的机身状态摘要。"""
+
     pitch: float
     pitch_rate: float
     x: float
@@ -57,6 +69,7 @@ class BalanceState:
 
 
 def quat_to_pitch(quat_wxyz) -> float:
+    """从 wxyz 四元数中提取绕 Y 轴的 pitch 角。"""
     w, x, y, z = [float(value) for value in quat_wxyz]
     value = 2.0 * (w * y - z * x)
     return float(np.arcsin(np.clip(value, -1.0, 1.0)))
@@ -76,6 +89,7 @@ def base_pitch_rate(data: mujoco.MjData) -> float:
 
 
 def sensor_slice(model: mujoco.MjModel, sensor_name: str) -> slice:
+    """返回某个 MuJoCo sensor 在 data.sensordata 中的切片位置。"""
     sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_name)
     if sensor_id < 0:
         raise ValueError(f"Model is missing sensor {sensor_name!r}")
@@ -85,6 +99,7 @@ def sensor_slice(model: mujoco.MjModel, sensor_name: str) -> slice:
 
 
 def has_base_imu(model: mujoco.MjModel) -> bool:
+    """判断模型是否提供当前控制器需要的 IMU 姿态和角速度。"""
     return (
         mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, BASE_IMU_GYRO) >= 0
         and mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, BASE_IMU_QUAT) >= 0
@@ -92,6 +107,7 @@ def has_base_imu(model: mujoco.MjModel) -> bool:
 
 
 def base_imu_quat(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
+    """读取 IMU 输出的 base/site 姿态四元数。"""
     values = data.sensordata[sensor_slice(model, BASE_IMU_QUAT)]
     if values.shape[0] != 4:
         raise ValueError("base_imu_quat must have dimension 4")
@@ -99,6 +115,7 @@ def base_imu_quat(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
 
 
 def base_imu_gyro(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
+    """读取 IMU 陀螺仪角速度。"""
     values = data.sensordata[sensor_slice(model, BASE_IMU_GYRO)]
     if values.shape[0] != 3:
         raise ValueError("base_imu_gyro must have dimension 3")
@@ -106,10 +123,12 @@ def base_imu_gyro(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
 
 
 def base_pitch_from_imu(model: mujoco.MjModel, data: mujoco.MjData) -> float:
+    """优先用于闭环控制的 pitch 估计。"""
     return quat_to_pitch(base_imu_quat(model, data))
 
 
 def base_pitch_rate_from_imu(model: mujoco.MjModel, data: mujoco.MjData) -> float:
+    """读取 IMU gyro 的 Y 分量，匹配当前 near-upright pitch-rate 约定。"""
     return float(base_imu_gyro(model, data)[1])
 
 
@@ -129,6 +148,7 @@ def compute_balance_control(
     config: BalanceConfig | None = None,
     leg_targets: Mapping[str, float] | None = None,
 ) -> tuple[np.ndarray, BalanceState]:
+    """计算腿部姿态保持力矩和左右轮平衡力矩。"""
     config = config or default_balance_config()
     targets = home_targets(model, joint_map)
     if leg_targets:
@@ -139,6 +159,7 @@ def compute_balance_control(
     for entry in joint_map:
         if entry.joint_name not in LEG_JOINTS:
             continue
+        # 腿部只做关节姿态保持，不直接参与机身位置/速度闭环。
         q = float(data.qpos[entry.qposadr])
         qdot = float(data.qvel[entry.dofadr])
         tau = config.leg_kp * (targets[entry.joint_name] - q) - config.leg_kd * qdot
@@ -146,6 +167,7 @@ def compute_balance_control(
         ctrl[entry.actuator_id] = np.clip(tau, lower, upper)
 
     if has_base_imu(model):
+        # 接近真实机器人接口：有 IMU 时不直接从 freejoint 偷看姿态。
         pitch = base_pitch_from_imu(model, data)
         pitch_rate = base_pitch_rate_from_imu(model, data)
     else:
@@ -155,6 +177,7 @@ def compute_balance_control(
     x_velocity = float(data.qvel[0])
     x_target = x if config.x_target is None else float(config.x_target)
     tau_balance = (
+        # 轮子控制量 = pitch PD + 可选的水平位置/速度反馈。
         config.kp_pitch * (config.pitch_target - pitch)
         + config.kd_pitch * (config.pitch_rate_target - pitch_rate)
         + config.kx * (x_target - x)

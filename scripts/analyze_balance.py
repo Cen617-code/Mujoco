@@ -1,4 +1,8 @@
-"""Analyze first-pass free-base body balance control."""
+"""Analyze first-pass free-base body balance control.
+
+运行当前 pitch 平衡控制器，并把机身角度、轮子力矩、base 高度等写成 CSV/报告。
+报告里的大 pitch 或力矩饱和并不算失败，而是告诉我们下一轮需要继续调控制器。
+"""
 
 from __future__ import annotations
 
@@ -35,6 +39,8 @@ TORQUE_LIMIT_EPSILON = 1e-9
 
 @dataclass(frozen=True)
 class BalanceSimulationResult:
+    """一次 free-base 平衡仿真的汇总指标和逐步时间序列。"""
+
     duration: float
     timestep: float
     steps: int
@@ -61,6 +67,7 @@ def _finite(data: mujoco.MjData, ctrl: np.ndarray) -> bool:
 
 
 def _sample_balance_state(data: mujoco.MjData, wheel_torque: float) -> BalanceState:
+    """从 MuJoCo data 中抽取报告需要的机身状态。"""
     return BalanceState(
         pitch=base_pitch(data),
         pitch_rate=base_pitch_rate(data),
@@ -75,6 +82,7 @@ def run_balance_simulation(
     duration: float = 2.0,
     config: BalanceConfig | None = None,
 ) -> BalanceSimulationResult:
+    """以 free-base 模式运行平衡控制器并收集诊断数据。"""
     data = mujoco.MjData(model)
     mujoco.mj_resetData(model, data)
     data.qpos[:] = model.qpos0
@@ -82,6 +90,7 @@ def run_balance_simulation(
     data.ctrl[:] = 0.0
     set_base_weld_active(model, data, False)
     if config is None:
+        # 默认把当前 x 位置作为目标，避免控制器一启动就试图回到全局 0。
         config = BalanceConfig(x_target=float(data.qpos[0]))
     elif config.x_target is None:
         config = replace(config, x_target=float(data.qpos[0]))
@@ -92,6 +101,7 @@ def run_balance_simulation(
     timeseries: list[dict[str, float]] = []
 
     for _ in range(steps):
+        # 控制在 step 前写入 data.ctrl；step 后采样新的状态作为 timeseries。
         ctrl, applied_state = apply_balance_control(model, data, joint_map, config)
         finite = finite and _finite(data, ctrl)
         mujoco.mj_step(model, data)
@@ -130,6 +140,7 @@ def write_balance_results(
     result: BalanceSimulationResult,
     output_dir: Path = DEFAULT_RESULTS,
 ) -> Path:
+    """输出 summary CSV、timeseries CSV 和人可读 Markdown 报告。"""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_fields = [
@@ -173,6 +184,7 @@ def write_balance_results(
         "This is a first-pass in-place balance prototype, not walking or trajectory tracking.",
     ]
     if result.peak_abs_wheel_torque >= WHEEL_TORQUE_LIMIT_NM - TORQUE_LIMIT_EPSILON:
+        # 轮子力矩打满时，明确提醒这不是“已经稳住”的证据。
         lines.extend(
             [
                 "",

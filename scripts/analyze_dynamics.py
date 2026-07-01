@@ -1,4 +1,9 @@
-"""Run basic finite-dynamics checks for the motorized MuJoCo model."""
+"""Run basic finite-dynamics checks for the motorized MuJoCo model.
+
+这个脚本不证明控制性能已经调好；它主要回答两个早期问题：
+1. 固定基座时 8 个关节的 PD 阶跃响应是否数值正常；
+2. free-base 时模型在真实动力学下自然运动是否有限、无 MuJoCo warning。
+"""
 
 from __future__ import annotations
 
@@ -32,6 +37,8 @@ DEFAULT_RESULTS = ROOT / "analysis" / "results"
 
 @dataclass(frozen=True)
 class StepMetric:
+    """单个关节一次阶跃响应的标量指标。"""
+
     joint_name: str
     target: float
     final_position: float
@@ -45,6 +52,8 @@ class StepMetric:
 
 @dataclass(frozen=True)
 class StepResponseResult:
+    """固定基座阶跃响应的完整结果，含指标和时间序列。"""
+
     duration: float
     timestep: float
     warning_count: int
@@ -54,6 +63,8 @@ class StepResponseResult:
 
 @dataclass(frozen=True)
 class FreeBaseResult:
+    """free-base 姿态保持有限性检查的摘要。"""
+
     duration: float
     timestep: float
     steps: int
@@ -94,6 +105,7 @@ def _metric_from_trace(
     torques: Sequence[float],
     torque_limits: Sequence[float],
 ) -> StepMetric:
+    """从关节位置/力矩轨迹计算 rise time、overshoot 等经典阶跃指标。"""
     time_values = np.asarray(times, dtype=float)
     position_values = np.asarray(positions, dtype=float)
     torque_values = np.asarray(torques, dtype=float)
@@ -152,6 +164,7 @@ def run_fixed_base_step_response(
     steps = max(1, int(np.ceil(float(duration) / timestep)))
 
     for entry in joint_map:
+        # 每个关节单独开一次仿真，只给当前关节目标加阶跃，避免互相污染指标。
         data = mujoco.MjData(model)
         _reset_data(model, data)
         set_base_weld_active(model, data, True)
@@ -216,6 +229,7 @@ def run_free_base_posture_check(
     peak_abs_ctrl = 0.0
 
     for _ in range(steps):
+        # 这里没有机身平衡控制；机器人允许按真实动力学倒下，只检查数值有限。
         ctrl = apply_pd_control(model, data, joint_map, targets, gains)
         _require_finite(data, "free-base control")
         peak_abs_qvel = max(peak_abs_qvel, float(np.max(np.abs(data.qvel))))
@@ -342,6 +356,7 @@ def _write_report(path: Path, step_result: StepResponseResult, free_result: Free
 
 
 def _write_plot_if_available(path: Path, step_result: StepResponseResult) -> None:
+    """如果环境有 matplotlib，就额外输出一张阶跃响应图；没有则静默跳过。"""
     try:
         import matplotlib.pyplot as plt
     except ImportError:

@@ -1,4 +1,9 @@
-"""Convert the project's eight-joint URDF to a native MuJoCo model."""
+"""Convert the project's eight-joint URDF to a native MuJoCo model.
+
+这个脚本是当前项目的“模型生成入口”：所有手工修正过的 MuJoCo 设定
+（free base、关节命名、力矩电机、IMU、初始落地高度等）都从这里生成到
+``8dof_URDF/mjcf/robot.xml``，避免直接改 XML 后下次转换被覆盖。
+"""
 
 from __future__ import annotations
 
@@ -35,6 +40,7 @@ EXPECTED_JOINTS = {
     "right_knee_joint",
     "right_wheel_joint",
 }
+# MuJoCo actuator 的顺序会被 Python 控制器直接使用，因此这里固定顺序。
 CONTROLLED_JOINTS = [
     "left_roll_joint",
     "left_hip_pitch_joint",
@@ -46,8 +52,10 @@ CONTROLLED_JOINTS = [
     "right_wheel_joint",
 ]
 
+# 机械模型中 hip pitch 的可用范围；覆盖 URDF 原始 limit。
 HIP_PITCH_RANGE = (-1.22, 0.87)
 
+# 每个关节电机的力矩限幅，写入 MJCF 的 actuator ctrlrange。
 TORQUE_LIMITS = {
     "left_roll_joint": (-20.0, 20.0),
     "right_roll_joint": (-20.0, 20.0),
@@ -61,6 +69,7 @@ TORQUE_LIMITS = {
 
 
 def corrected_name(name: str) -> str:
+    """把早期 URDF 中误写的 yaw 语义统一改成 roll。"""
     return name.replace("yaw", "roll")
 
 
@@ -73,6 +82,7 @@ def _format(values) -> str:
 
 
 def _origin(element: ET.Element | None) -> tuple[list[float], list[float]]:
+    """读取 URDF origin，并把 rpy 转为 MuJoCo 使用的 wxyz 四元数。"""
     if element is None:
         return [0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]
     xyz = _numbers(element.get("xyz"), "0 0 0")
@@ -108,6 +118,7 @@ def _write(tree: ET.ElementTree, output: Path) -> None:
 
 
 def _mesh_min_z(model: mujoco.MjModel, data: mujoco.MjData, geom_name: str) -> float:
+    """计算某个 mesh geom 在当前姿态下的最低世界 z 坐标。"""
     geom_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
     if geom_id < 0:
         raise ValueError(f"Generated model is missing geom {geom_name!r}")
@@ -116,7 +127,7 @@ def _mesh_min_z(model: mujoco.MjModel, data: mujoco.MjData, geom_name: str) -> f
         raise ValueError(f"Geom {geom_name!r} is not a mesh")
     start = model.mesh_vertadr[mesh_id]
     count = model.mesh_vertnum[mesh_id]
-    vertices = model.mesh_vert[start : start + count]
+    vertices = model.mesh_vert[start:start + count]
     rotation = data.geom_xmat[geom_id].reshape(3, 3)
     return float((vertices @ rotation.T + data.geom_xpos[geom_id])[:, 2].min())
 
@@ -128,6 +139,8 @@ def convert_urdf(source: Path, output: Path) -> Path:
     if not source.is_file():
         raise FileNotFoundError(f"URDF source does not exist: {source}")
 
+    # 第一阶段只做拓扑和资源校验：如果 URDF 结构不符合预期，直接失败，
+    # 不生成一个“看起来能加载但语义错了”的模型。
     urdf_root = ET.parse(source).getroot()
     links = {element.get("name"): element for element in urdf_root.findall("link")}
     joints = {element.get("name"): element for element in urdf_root.findall("joint")}
@@ -167,6 +180,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
     if visited != set(links):
         raise ValueError(f"Disconnected links: {sorted(set(links) - visited)}")
 
+    # 本项目要求每个 link 使用同一个简化 STL 同时作为 visual/collision。
     mesh_files: dict[str, Path] = {}
     for link_name, link in links.items():
         inertial = link.find("inertial")
@@ -184,6 +198,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
             raise FileNotFoundError(f"Mesh for {link_name} does not exist: {visual_file}")
         mesh_files[link_name] = visual_file
 
+    # 第二阶段开始组装 MJCF。compiler.meshdir 相对于输出 XML 所在目录。
     model_root = ET.Element("mujoco", {"model": "passive_wheeled_biped"})
     ET.SubElement(
         model_root,
@@ -229,12 +244,14 @@ def convert_urdf(source: Path, output: Path) -> Path:
     )
 
     def add_link(link_name: str, parent_body: ET.Element, joint: ET.Element | None = None) -> ET.Element:
+        """递归把 URDF link/joint 树翻译为 MuJoCo body/joint 树。"""
         attributes = {"name": corrected_name(link_name)}
         if joint is not None:
             xyz, quat = _origin(joint.find("origin"))
             attributes.update({"pos": _format(xyz), "quat": _format(quat)})
         body = ET.SubElement(parent_body, "body", attributes)
         if joint is None:
+            # 根 body 是真实 free-base，不在默认模型里固定住。
             ET.SubElement(body, "freejoint", {"name": "base_freejoint"})
         else:
             joint_name = joint.get("name")
@@ -254,11 +271,13 @@ def convert_urdf(source: Path, output: Path) -> Path:
                     raise ValueError(f"Revolute joint {joint_name} is missing its range")
                 corrected_joint_name = corrected_name(joint_name)
                 if corrected_joint_name in {"left_hip_pitch_joint", "right_hip_pitch_joint"}:
+                    # hip pitch 的限位来自当前控制/机械约定，不沿用 URDF 旧值。
                     joint_attributes["range"] = _format(HIP_PITCH_RANGE)
                 else:
                     joint_attributes["range"] = f"{limit.get('lower')} {limit.get('upper')}"
             ET.SubElement(body, "joint", joint_attributes)
         if link_name == "base_link":
+            # 理想 IMU 安装点：site 本身不参与碰撞，只给 MuJoCo sensor 绑定。
             ET.SubElement(
                 body,
                 "site",
@@ -271,6 +290,8 @@ def convert_urdf(source: Path, output: Path) -> Path:
             )
 
         link = links[link_name]
+        # MuJoCo 这里要求 inertia frame 不旋转；如果未来 URDF 导出旋转惯量，
+        # 需要显式处理，而不是悄悄丢掉姿态信息。
         inertial = _required_child(link, "inertial", f"link {link_name}")
         inertial_xyz, inertial_quat = _origin(inertial.find("origin"))
         if not np.allclose(inertial_quat, [1.0, 0.0, 0.0, 0.0], atol=1e-10):
@@ -331,6 +352,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
                 "group": "3",
         }
         if link_name in {"left_wheel_link", "right_wheel_link"}:
+            # 给轮子一点接触 margin，帮助初始地面接触更稳定。
             collision_attributes["margin"] = "0.001"
         ET.SubElement(body, "geom", collision_attributes)
         for child_joint in sorted(children[link_name], key=lambda element: element.get("name")):
@@ -343,6 +365,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
     base_body = add_link("base_link", worldbody)
     actuator = ET.SubElement(model_root, "actuator")
     for joint_name in CONTROLLED_JOINTS:
+        # 这里使用 torque motor；实际 PD/平衡控制在 Python 侧写 data.ctrl。
         lower, upper = TORQUE_LIMITS[joint_name]
         ET.SubElement(
             actuator,
@@ -356,6 +379,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
             },
         )
     equality = ET.SubElement(model_root, "equality")
+    # 默认 inactive。分析脚本会临时打开它做固定基座阶跃响应。
     ET.SubElement(
         equality,
         "weld",
@@ -367,6 +391,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
         },
     )
     sensor = ET.SubElement(model_root, "sensor")
+    # IMU 输出顺序：gyro(3) + accel(3) + framequat(4)，总 sensordata 维度 10。
     ET.SubElement(sensor, "gyro", {"name": "base_imu_gyro", "site": "base_imu_site"})
     ET.SubElement(sensor, "accelerometer", {"name": "base_imu_accel", "site": "base_imu_site"})
     ET.SubElement(
@@ -381,6 +406,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
     tree = ET.ElementTree(model_root)
     _write(tree, output)
 
+    # 第三阶段：先加载一次临时模型，测轮子最低点，反推出 base_link 高度。
     provisional = mujoco.MjModel.from_xml_path(str(output))
     provisional_data = mujoco.MjData(provisional)
     mujoco.mj_forward(provisional, provisional_data)
@@ -403,6 +429,7 @@ def convert_urdf(source: Path, output: Path) -> Path:
     )
     _write(tree, output)
 
+    # 最终自检：除轮子之外的碰撞体不能在初始姿态明显穿地。
     final_model = mujoco.MjModel.from_xml_path(str(output))
     final_data = mujoco.MjData(final_model)
     mujoco.mj_forward(final_model, final_data)
