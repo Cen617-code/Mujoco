@@ -22,6 +22,7 @@ from scripts.balance_control import (
 )
 from scripts.analyze_balance import (
     BalanceSimulationResult,
+    STANDING_FAILURE_SCORE,
     meets_standing_objective_values,
     run_balance_simulation,
     standing_score_values,
@@ -300,6 +301,30 @@ def test_standing_score_values_penalizes_warning_and_nonfinite_results():
     assert nonfinite_score > 1_000.0
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"final_abs_pitch": float("nan")},
+        {"peak_abs_pitch": float("inf")},
+        {"peak_abs_x_drift": float("nan")},
+        {"wheel_torque_saturation_fraction": float("inf")},
+        {"warning_count": float("nan")},
+    ],
+)
+def test_standing_score_values_returns_failure_for_nonfinite_inputs(overrides):
+    kwargs = {
+        "warning_count": 0,
+        "finite": True,
+        "final_abs_pitch": 0.1,
+        "peak_abs_pitch": 0.2,
+        "peak_abs_x_drift": 0.05,
+        "wheel_torque_saturation_fraction": 0.0,
+    }
+    kwargs.update(overrides)
+
+    assert standing_score_values(**kwargs) == STANDING_FAILURE_SCORE
+
+
 def test_balance_simulation_defaults_none_x_target_to_initial_base_x(model, monkeypatch):
     captured_x_targets: list[float | None] = []
     original_apply_balance_control = analyze_balance.apply_balance_control
@@ -327,6 +352,43 @@ def test_balance_simulation_defaults_none_x_target_to_initial_base_x(model, monk
         x_target == pytest.approx(float(model.qpos0[0]))
         for x_target in captured_x_targets
     )
+
+
+def test_balance_simulation_passes_leg_targets_to_balance_control(model, monkeypatch):
+    sentinel_targets = {"left_knee_joint": 0.12}
+    captured_leg_targets = []
+    original_apply_balance_control = analyze_balance.apply_balance_control
+
+    def recording_apply_balance_control(
+        model_arg,
+        data,
+        joint_map,
+        config=None,
+        leg_targets=None,
+    ):
+        captured_leg_targets.append(leg_targets)
+        return original_apply_balance_control(
+            model_arg,
+            data,
+            joint_map,
+            config,
+            leg_targets,
+        )
+
+    monkeypatch.setattr(
+        analyze_balance,
+        "apply_balance_control",
+        recording_apply_balance_control,
+    )
+    result = run_balance_simulation(
+        model,
+        duration=0.01,
+        leg_targets=sentinel_targets,
+    )
+
+    assert result.finite
+    assert captured_leg_targets
+    assert all(leg_targets is sentinel_targets for leg_targets in captured_leg_targets)
 
 
 def test_balance_simulation_summary_matches_final_sample(model):

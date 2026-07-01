@@ -110,7 +110,11 @@ def standing_score_values(
         float(peak_abs_x_drift),
         float(wheel_torque_saturation_fraction),
     ]
-    if int(warning_count) != 0 or not bool(finite) or not np.isfinite(values).all():
+    try:
+        warning_count_value = int(warning_count)
+    except (TypeError, ValueError, OverflowError):
+        return STANDING_FAILURE_SCORE
+    if warning_count_value != 0 or not bool(finite) or not np.isfinite(values).all():
         return STANDING_FAILURE_SCORE
     score = (
         4.0 * float(final_abs_pitch)
