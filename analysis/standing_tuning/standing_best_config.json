@@ -1,0 +1,27 @@
+{
+  "candidate": {
+    "hip_pitch": -0.2,
+    "kd_pitch": 2.0,
+    "knee": 0.35,
+    "kp_pitch": 20.0,
+    "kv": 0.5,
+    "kx": 1.0
+  },
+  "result": {
+    "final_abs_pitch": 1.2455979289464187,
+    "finite": true,
+    "hip_pitch": -0.2,
+    "kd_pitch": 2.0,
+    "knee": 0.35,
+    "kp_pitch": 20.0,
+    "kv": 0.5,
+    "kx": 1.0,
+    "meets_standing_objective": false,
+    "peak_abs_pitch": 1.3992533248384218,
+    "peak_abs_x_drift": 0.3027072200080519,
+    "rank": 1,
+    "standing_score": 1008.5571055854706,
+    "warning_count": 0,
+    "wheel_torque_saturation_fraction": 0.947
+  }
+}

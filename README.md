@@ -1,6 +1,6 @@
 # MuJoCo 8-DOF Wheeled Biped
 
-一个基于 MuJoCo 的 8 自由度双足轮式机器人模型项目，包含 URDF 到 MJCF 转换、free-base 动力学模型、8 个力矩电机、Python PD 关节控制、固定基座阶跃响应分析，以及 free-base 数值稳定性验证。
+一个基于 MuJoCo 的 8 自由度双足轮式机器人模型项目，包含 URDF 到 MJCF 转换、free-base 动力学模型、8 个力矩电机、Python PD 关节控制、固定基座阶跃响应分析、free-base 数值稳定性验证，以及第一版轮式站立平衡诊断/调参流程。
 
 ## 当前状态
 
@@ -16,6 +16,7 @@
 - 在 `base_link` 上方包含理想 IMU 传感器
 - 包含固定基座单关节阶跃响应分析
 - 包含 free-base 姿态保持有限动力学验证
+- 包含原地站立平衡分析、确定性参数 sweep 和结果报告
 
 ## 快速开始
 
@@ -78,13 +79,25 @@ analysis/
     dynamics_report.md
     step_response_metrics.csv
     free_base_summary.csv
+  balance_results/
+    balance_report.md
+    balance_summary.csv
+    balance_timeseries.csv
+  standing_tuning/
+    standing_tuning_report.md
+    standing_tuning_results.csv
+    standing_best_config.json
 scripts/
   convert_urdf_to_mjcf.py
   pd_control.py
   analyze_dynamics.py
+  analyze_balance.py
+  tune_standing_balance.py
+  run_balance_viewer.py
 tests/
   test_passive_mjcf.py
   test_motor_control_dynamics.py
+  test_balance_control.py
 ```
 
 ## 模型说明
@@ -141,6 +154,13 @@ analysis\results\dynamics_report.md
 
 第一版机身平衡控制使用腿部 PD 保持名义站立关节姿态，并用左右轮调节机身 pitch。pitch 反馈在模型提供 IMU 时来自 `base_imu_quat` 和 `base_imu_gyro`；如果没有 IMU 传感器，则回退到 freejoint 的 `qpos/qvel`。由于左右轮关节轴在世界坐标中方向相反，控制器会给左右轮 actuator 反向控制量，使物理轮滚动力矩方向一致。它是原地平衡原型，不是行走控制器。
 
+当前默认站立姿态会让 hip/knee 稍微弯曲：
+
+```text
+hip_pitch = -0.15 rad
+knee      =  0.35 rad
+```
+
 运行平衡分析：
 
 ```powershell
@@ -159,11 +179,54 @@ analysis\results\dynamics_report.md
 analysis\balance_results\
 ```
 
+### 稳健站立控制 v1
+
+稳健站立 v1 的中等验收目标是 2 秒 free-base 仿真：
+
+- MuJoCo warning 数为 0
+- 状态保持 finite
+- final `|pitch| < 0.25 rad`
+- peak `|pitch| < 0.5 rad`
+- peak `|x drift| < 0.3 m`
+
+当前已实现确定性 sweep 调参入口：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\tune_standing_balance.py --duration 2.0
+```
+
+输出目录：
+
+```text
+analysis\standing_tuning\
+```
+
+最近一次 216 组候选 sweep 的最佳候选为：
+
+```text
+hip_pitch=-0.20, knee=0.35, kp_pitch=20.0, kd_pitch=2.0, kx=1.0, kv=0.5
+```
+
+对应指标：
+
+```text
+warning_count=0
+finite=True
+final |pitch|=1.24560 rad
+peak |pitch|=1.39925 rad
+peak |x drift|=0.302707 m
+wheel torque saturation fraction=0.947
+standing objective met=False
+```
+
+因此当前版本已经完成站立控制诊断、评分、调参和报告链路，但还没有达到稳健站立 v1 目标。默认配置没有被切换到这个最佳候选，以避免把未达标参数误标为“成功默认值”。下一步更适合扩展控制结构，例如加入 pitch/速度的状态反馈、轮速/位置约束下的增益调度，或重新检查质心、轮半径、接触参数与力矩上限。
+
 ## 当前限制
 
 - 目前只是第一版原地 pitch 平衡原型，不是完整轮式双足平衡/行走控制器。
 - free-base 仿真允许机器人按真实动力学自然倒下。
 - Viewer 直接打开 XML 时不会自动运行 Python PD 控制器。
+- 当前稳健站立 sweep 未通过 2 秒中等验收目标；报告中的结果是诊断基线，不代表已能稳定站立。
 - 阶跃响应中的 `nan` 表示该关节在分析时间内没有达到对应指标，例如没有达到 90% 上升或没有进入 2% 稳态区间。
 
 ## 最近验证结果
@@ -171,7 +234,7 @@ analysis\balance_results\
 当前版本测试结果：
 
 ```text
-19 passed
+35 passed in tests/test_balance_control.py
 ```
 
 模型诊断摘要：

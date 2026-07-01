@@ -1,2 +1,2 @@
-duration,timestep,steps,warning_count,finite,peak_abs_pitch,final_pitch,peak_abs_pitch_rate,peak_abs_wheel_torque,final_base_height
-2.0,0.001,2000,0,True,1.547420506938971,1.3398381249710396,10.720089956053092,10.0,0.1301082954674049
+duration,timestep,steps,warning_count,finite,initial_x,final_x,x_drift,peak_abs_x_drift,peak_abs_pitch,final_pitch,final_abs_pitch,peak_abs_pitch_rate,peak_abs_wheel_torque,wheel_torque_saturation_fraction,final_base_height,meets_standing_objective,standing_score
+2.0,0.001,2000,0,True,0.0,-0.2988160593983913,-0.2988160593983913,0.33782850915772256,1.3707222961832208,1.3486338660719797,1.3486338660719797,10.391808589946864,10.0,0.9635,0.13055179987472407,False,1008.9555585658121
