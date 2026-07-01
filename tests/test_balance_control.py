@@ -355,6 +355,33 @@ def test_balance_simulation_defaults_none_x_target_to_initial_base_x(model, monk
     )
 
 
+def test_balance_simulation_uses_default_standing_targets_when_not_provided(model, monkeypatch):
+    captured_leg_targets: list[dict[str, float] | None] = []
+    original_apply_balance_control = analyze_balance.apply_balance_control
+
+    def recording_apply_balance_control(
+        model_arg,
+        data,
+        joint_map,
+        config=None,
+        leg_targets=None,
+    ):
+        captured_leg_targets.append(None if leg_targets is None else dict(leg_targets))
+        return original_apply_balance_control(model_arg, data, joint_map, config, leg_targets)
+
+    monkeypatch.setattr(
+        analyze_balance,
+        "apply_balance_control",
+        recording_apply_balance_control,
+    )
+
+    result = run_balance_simulation(model, duration=0.01)
+
+    assert result.finite
+    assert captured_leg_targets
+    assert all(targets == standing_leg_targets() for targets in captured_leg_targets)
+
+
 def test_balance_simulation_passes_leg_targets_to_balance_control(model, monkeypatch):
     sentinel_targets = {"left_knee_joint": 0.12}
     captured_leg_targets = []

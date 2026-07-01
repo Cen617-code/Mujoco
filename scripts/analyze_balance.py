@@ -25,6 +25,8 @@ from scripts.balance_control import (
     apply_balance_control,
     base_pitch,
     base_pitch_rate,
+    default_standing_config,
+    standing_leg_targets,
 )
 from scripts.convert_urdf_to_mjcf import ROOT, convert_urdf
 from scripts.pd_control import build_joint_map, set_base_weld_active
@@ -152,10 +154,12 @@ def run_balance_simulation(
     data.ctrl[:] = 0.0
     set_base_weld_active(model, data, False)
     if config is None:
-        # 默认把当前 x 位置作为目标，避免控制器一启动就试图回到全局 0。
-        config = BalanceConfig(x_target=float(data.qpos[0]))
-    elif config.x_target is None:
+        # 默认使用当前最好的 standing 入口；仍把当前 x 位置作为目标。
+        config = default_standing_config()
+    if config.x_target is None:
         config = replace(config, x_target=float(data.qpos[0]))
+    if leg_targets is None:
+        leg_targets = standing_leg_targets()
     initial_x = float(data.qpos[0])
     joint_map = build_joint_map(model)
     timestep = float(model.opt.timestep)

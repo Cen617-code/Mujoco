@@ -20,7 +20,11 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.analyze_balance import DEFAULT_MODEL, DEFAULT_SOURCE
-from scripts.balance_control import BalanceConfig, apply_balance_control
+from scripts.balance_control import (
+    apply_balance_control,
+    default_standing_config,
+    standing_leg_targets,
+)
 from scripts.convert_urdf_to_mjcf import convert_urdf
 from scripts.pd_control import build_joint_map, set_base_weld_active
 
@@ -34,12 +38,17 @@ def run_viewer(model_path: Path, duration: float | None = None) -> None:
     data.qvel[:] = 0.0
     set_base_weld_active(model, data, False)
     joint_map = build_joint_map(model)
-    config = BalanceConfig(x_target=float(data.qpos[0]))
+    config = default_standing_config()
+    if config.x_target is None:
+        from dataclasses import replace
+
+        config = replace(config, x_target=float(data.qpos[0]))
+    leg_targets = standing_leg_targets()
     start = time.time()
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
             # launch_passive 不会自动推进仿真；这里手动控制、step、sync。
-            apply_balance_control(model, data, joint_map, config)
+            apply_balance_control(model, data, joint_map, config, leg_targets)
             mujoco.mj_step(model, data)
             if not (np.isfinite(data.qpos).all() and np.isfinite(data.qvel).all()):
                 raise FloatingPointError("Non-finite state in balance viewer")
