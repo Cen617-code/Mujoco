@@ -16,7 +16,9 @@ from scripts.balance_control import (
     base_pitch,
     base_pitch_rate,
     compute_balance_control,
+    default_standing_config,
     quat_to_pitch,
+    standing_leg_targets,
 )
 from scripts.analyze_balance import (
     BalanceSimulationResult,
@@ -160,6 +162,57 @@ def test_leg_joints_receive_posture_pd_torques(model):
     ctrl, state = compute_balance_control(model, data, joint_map, config)
     assert state.pitch == pytest.approx(0.0, abs=1e-9)
     assert ctrl[left_knee.actuator_id] < 0.0
+
+
+def test_compute_balance_control_uses_symmetric_standing_leg_targets(model):
+    data = mujoco.MjData(model)
+    data.qpos[:] = model.qpos0
+    data.qvel[:] = 0.0
+    mujoco.mj_forward(model, data)
+    joint_map = build_joint_map(model)
+
+    config = BalanceConfig(leg_kp=10.0, leg_kd=0.0, kp_pitch=0.0, kd_pitch=0.0, kv=0.0)
+    ctrl, _ = compute_balance_control(
+        model,
+        data,
+        joint_map,
+        config,
+        leg_targets=standing_leg_targets(hip_pitch=-0.1, knee=0.2),
+    )
+
+    by_name = {entry.joint_name: entry for entry in joint_map}
+    assert ctrl[by_name["left_hip_pitch_joint"].actuator_id] < 0.0
+    assert ctrl[by_name["right_hip_pitch_joint"].actuator_id] < 0.0
+    assert ctrl[by_name["left_knee_joint"].actuator_id] > 0.0
+    assert ctrl[by_name["right_knee_joint"].actuator_id] > 0.0
+    assert ctrl[by_name["left_wheel_joint"].actuator_id] == pytest.approx(0.0)
+    assert ctrl[by_name["right_wheel_joint"].actuator_id] == pytest.approx(0.0)
+
+
+def test_standing_leg_targets_are_symmetric_and_leg_only():
+    targets = standing_leg_targets(hip_pitch=-0.15, knee=0.35)
+
+    assert targets == {
+        "left_hip_pitch_joint": -0.15,
+        "right_hip_pitch_joint": -0.15,
+        "left_knee_joint": 0.35,
+        "right_knee_joint": 0.35,
+    }
+    assert not any("wheel" in joint_name for joint_name in targets)
+    assert not any("roll" in joint_name for joint_name in targets)
+
+
+def test_default_standing_config_is_explicit_and_does_not_change_generic_config():
+    generic = BalanceConfig()
+    standing = default_standing_config()
+
+    assert standing != generic
+    assert standing.pitch_target == pytest.approx(0.0)
+    assert standing.pitch_rate_target == pytest.approx(0.0)
+    assert standing.kp_pitch > 0.0
+    assert standing.kd_pitch >= 0.0
+    assert standing.leg_kp > 0.0
+    assert standing.leg_kd >= 0.0
 
 
 def test_apply_balance_control_writes_model_ctrl(model):

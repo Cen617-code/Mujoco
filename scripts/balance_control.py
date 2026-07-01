@@ -36,6 +36,8 @@ WHEEL_ACTUATOR_SIGNS = {
 BASE_IMU_GYRO = "base_imu_gyro"
 BASE_IMU_ACCEL = "base_imu_accel"
 BASE_IMU_QUAT = "base_imu_quat"
+DEFAULT_STANDING_HIP_PITCH = -0.15
+DEFAULT_STANDING_KNEE = 0.35
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,10 @@ class BalanceConfig:
     kv: float = 1.0
     leg_kp: float = 20.0
     leg_kd: float = 1.0
+
+
+class _StandingBalanceConfig(BalanceConfig):
+    """Marker subtype for explicit robust-standing presets."""
 
 
 @dataclass(frozen=True)
@@ -132,8 +138,37 @@ def base_pitch_rate_from_imu(model: mujoco.MjModel, data: mujoco.MjData) -> floa
     return float(base_imu_gyro(model, data)[1])
 
 
+def standing_leg_targets(
+    hip_pitch: float = DEFAULT_STANDING_HIP_PITCH,
+    knee: float = DEFAULT_STANDING_KNEE,
+) -> dict[str, float]:
+    """Return symmetric fixed leg targets for robust-standing attempts."""
+    return {
+        "left_hip_pitch_joint": float(hip_pitch),
+        "right_hip_pitch_joint": float(hip_pitch),
+        "left_knee_joint": float(knee),
+        "right_knee_joint": float(knee),
+    }
+
+
 def default_balance_config() -> BalanceConfig:
     return BalanceConfig()
+
+
+def default_standing_config() -> BalanceConfig:
+    """Return the current best explicit robust-standing controller config."""
+    return _StandingBalanceConfig(
+        pitch_target=0.0,
+        pitch_rate_target=0.0,
+        x_target=None,
+        x_velocity_target=0.0,
+        kp_pitch=35.0,
+        kd_pitch=4.0,
+        kx=0.0,
+        kv=1.0,
+        leg_kp=20.0,
+        leg_kd=1.0,
+    )
 
 
 def _actuator_limits(model: mujoco.MjModel, entry: JointControlMap) -> tuple[float, float]:
