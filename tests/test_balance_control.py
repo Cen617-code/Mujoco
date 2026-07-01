@@ -198,21 +198,27 @@ def test_standing_leg_targets_are_symmetric_and_leg_only():
         "left_knee_joint": 0.35,
         "right_knee_joint": 0.35,
     }
+    assert standing_leg_targets() == targets
     assert not any("wheel" in joint_name for joint_name in targets)
     assert not any("roll" in joint_name for joint_name in targets)
 
 
 def test_default_standing_config_is_explicit_and_does_not_change_generic_config():
-    generic = BalanceConfig()
     standing = default_standing_config()
 
-    assert standing != generic
+    assert isinstance(standing, BalanceConfig)
+    # Task 1 intentionally starts with the current generic numeric defaults;
+    # future tuning may update this named standing preset independently.
     assert standing.pitch_target == pytest.approx(0.0)
     assert standing.pitch_rate_target == pytest.approx(0.0)
-    assert standing.kp_pitch > 0.0
-    assert standing.kd_pitch >= 0.0
-    assert standing.leg_kp > 0.0
-    assert standing.leg_kd >= 0.0
+    assert standing.x_target is None
+    assert standing.x_velocity_target == pytest.approx(0.0)
+    assert standing.kp_pitch == pytest.approx(35.0)
+    assert standing.kd_pitch == pytest.approx(4.0)
+    assert standing.kx == pytest.approx(0.0)
+    assert standing.kv == pytest.approx(1.0)
+    assert standing.leg_kp == pytest.approx(20.0)
+    assert standing.leg_kd == pytest.approx(1.0)
 
 
 def test_apply_balance_control_writes_model_ctrl(model):

@@ -59,10 +59,6 @@ class BalanceConfig:
     leg_kd: float = 1.0
 
 
-class _StandingBalanceConfig(BalanceConfig):
-    """Marker subtype for explicit robust-standing presets."""
-
-
 @dataclass(frozen=True)
 class BalanceState:
     """一次控制计算后用于记录/分析的机身状态摘要。"""
@@ -157,7 +153,7 @@ def default_balance_config() -> BalanceConfig:
 
 def default_standing_config() -> BalanceConfig:
     """Return the current best explicit robust-standing controller config."""
-    return _StandingBalanceConfig(
+    return BalanceConfig(
         pitch_target=0.0,
         pitch_rate_target=0.0,
         x_target=None,
