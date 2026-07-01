@@ -201,10 +201,10 @@ analysis\balance_results\
 analysis\standing_tuning\
 ```
 
-最近一次 216 组候选 sweep 的最佳候选为：
+最近一次 216 组候选 sweep 已达到目标，最佳候选已固化为默认站立控制参数：
 
 ```text
-hip_pitch=-0.20, knee=0.35, kp_pitch=20.0, kd_pitch=2.0, kx=1.0, kv=0.5
+hip_pitch=0.20, knee=0.35, kp_pitch=20.0, kd_pitch=6.0, kx=0.0, kv=20.0
 ```
 
 对应指标：
@@ -212,21 +212,33 @@ hip_pitch=-0.20, knee=0.35, kp_pitch=20.0, kd_pitch=2.0, kx=1.0, kv=0.5
 ```text
 warning_count=0
 finite=True
-final |pitch|=1.24560 rad
-peak |pitch|=1.39925 rad
-peak |x drift|=0.302707 m
-wheel torque saturation fraction=0.947
-standing objective met=False
+final |pitch|=0.01333 rad
+peak |pitch|=0.133335 rad
+peak |x drift|=0.085737 m
+wheel torque saturation fraction=0.000
+standing objective met=True
 ```
 
-因此当前版本已经完成站立控制诊断、评分、调参和报告链路，但还没有达到稳健站立 v1 目标。默认配置没有被切换到这个最佳候选，以避免把未达标参数误标为“成功默认值”。下一步更适合扩展控制结构，例如加入 pitch/速度的状态反馈、轮速/位置约束下的增益调度，或重新检查质心、轮半径、接触参数与力矩上限。
+默认 2 秒分析也通过中等验收目标：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\analyze_balance.py --duration 2.0
+```
+
+如果要在 MuJoCo Viewer 里看受控站立，不要直接打开 XML；请运行带 Python 控制循环的 viewer：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_balance_viewer.py --no-regenerate
+```
+
+这个 viewer 会使用 `scripts/balance_control.py` 中的默认稳健站立参数，每个仿真步写入腿部 PD 和左右轮平衡力矩。
 
 ## 当前限制
 
 - 目前只是第一版原地 pitch 平衡原型，不是完整轮式双足平衡/行走控制器。
 - free-base 仿真允许机器人按真实动力学自然倒下。
 - Viewer 直接打开 XML 时不会自动运行 Python PD 控制器。
-- 当前稳健站立 sweep 未通过 2 秒中等验收目标；报告中的结果是诊断基线，不代表已能稳定站立。
+- 当前稳健站立控制已通过 2 秒中等验收目标，但仍只是原地站立基线，不代表已经具备抗大扰动或行走能力。
 - 阶跃响应中的 `nan` 表示该关节在分析时间内没有达到对应指标，例如没有达到 90% 上升或没有进入 2% 稳态区间。
 
 ## 最近验证结果
@@ -234,7 +246,7 @@ standing objective met=False
 当前版本测试结果：
 
 ```text
-35 passed in tests/test_balance_control.py
+57 passed in tests
 ```
 
 模型诊断摘要：

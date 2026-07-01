@@ -4,20 +4,16 @@
 - Steps: 2000
 - MuJoCo warnings: 0
 - Finite state: True
-- Standing objective met: False
-- Standing score: 1008.96
-- Peak |pitch|: 1.37072 rad
-- Final pitch: 1.34863 rad
-- Final |pitch|: 1.34863 rad
-- Peak |pitch rate|: 10.3918 rad/s
-- Peak |x drift|: 0.337829 m
-- Final x drift: -0.298816 m
-- Peak |wheel torque|: 10 N·m
-- Wheel torque saturation fraction: 0.964
-- Final base height: 0.130552 m
+- Standing objective met: True
+- Standing score: 0.405727
+- Peak |pitch|: 0.133335 rad
+- Final pitch: 0.01333 rad
+- Final |pitch|: 0.01333 rad
+- Peak |pitch rate|: 2.28067 rad/s
+- Peak |x drift|: 0.0857368 m
+- Final x drift: 0.0853496 m
+- Peak |wheel torque|: 6.46906 N·m
+- Wheel torque saturation fraction: 0.000
+- Final base height: 0.250378 m
 
 This is a first-pass in-place balance prototype, not walking or trajectory tracking.
-
-This run does not meet the robust-standing v1 objective.
-
-This run reached the ±10 N·m wheel torque limit; results are first-pass balance diagnostics and do not demonstrate robust standing or walking.

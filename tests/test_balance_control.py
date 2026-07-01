@@ -105,10 +105,10 @@ def test_balance_torque_direction_and_saturation(model):
     right_wheel = next(entry for entry in joint_map if entry.joint_name == "right_wheel_joint")
     assert state.pitch == pytest.approx(0.2, abs=1e-9)
     assert ctrl[left_wheel.actuator_id] == pytest.approx(
-        model.actuator_ctrlrange[left_wheel.actuator_id, 0]
+        model.actuator_ctrlrange[left_wheel.actuator_id, 1]
     )
     assert ctrl[right_wheel.actuator_id] == pytest.approx(
-        model.actuator_ctrlrange[right_wheel.actuator_id, 1]
+        model.actuator_ctrlrange[right_wheel.actuator_id, 0]
     )
 
 
@@ -147,10 +147,10 @@ def test_negative_pitch_saturates_wheel_torque_to_upper_limit(model):
     right_wheel = next(entry for entry in joint_map if entry.joint_name == "right_wheel_joint")
     assert state.pitch == pytest.approx(-0.2, abs=1e-9)
     assert ctrl[left_wheel.actuator_id] == pytest.approx(
-        model.actuator_ctrlrange[left_wheel.actuator_id, 1]
+        model.actuator_ctrlrange[left_wheel.actuator_id, 0]
     )
     assert ctrl[right_wheel.actuator_id] == pytest.approx(
-        model.actuator_ctrlrange[right_wheel.actuator_id, 0]
+        model.actuator_ctrlrange[right_wheel.actuator_id, 1]
     )
 
 
@@ -194,11 +194,11 @@ def test_compute_balance_control_uses_symmetric_standing_leg_targets(model):
 
 
 def test_standing_leg_targets_are_symmetric_and_leg_only():
-    targets = standing_leg_targets(hip_pitch=-0.15, knee=0.35)
+    targets = standing_leg_targets(hip_pitch=0.2, knee=0.35)
 
     assert targets == {
-        "left_hip_pitch_joint": -0.15,
-        "right_hip_pitch_joint": -0.15,
+        "left_hip_pitch_joint": 0.2,
+        "right_hip_pitch_joint": 0.2,
         "left_knee_joint": 0.35,
         "right_knee_joint": 0.35,
     }
@@ -211,16 +211,15 @@ def test_default_standing_config_is_explicit_and_does_not_change_generic_config(
     standing = default_standing_config()
 
     assert isinstance(standing, BalanceConfig)
-    # Task 1 intentionally starts with the current generic numeric defaults;
-    # future tuning may update this named standing preset independently.
+    # The standing preset is tuned independently from the generic demo config.
     assert standing.pitch_target == pytest.approx(0.0)
     assert standing.pitch_rate_target == pytest.approx(0.0)
     assert standing.x_target is None
     assert standing.x_velocity_target == pytest.approx(0.0)
-    assert standing.kp_pitch == pytest.approx(35.0)
-    assert standing.kd_pitch == pytest.approx(4.0)
+    assert standing.kp_pitch == pytest.approx(20.0)
+    assert standing.kd_pitch == pytest.approx(6.0)
     assert standing.kx == pytest.approx(0.0)
-    assert standing.kv == pytest.approx(1.0)
+    assert standing.kv == pytest.approx(20.0)
     assert standing.leg_kp == pytest.approx(20.0)
     assert standing.leg_kd == pytest.approx(1.0)
 
@@ -245,6 +244,17 @@ def test_balance_simulation_runs_finite(model):
     assert len(result.timeseries) == result.steps
     assert result.peak_abs_wheel_torque <= 10.0 + 1e-9
     assert np.isfinite(result.final_pitch)
+
+
+def test_default_standing_config_meets_two_second_objective(model):
+    result = run_balance_simulation(model, duration=2.0)
+
+    assert result.warning_count == 0
+    assert result.finite
+    assert result.final_abs_pitch < 0.25
+    assert result.peak_abs_pitch < 0.5
+    assert result.peak_abs_x_drift < 0.3
+    assert result.meets_standing_objective
 
 
 def test_standing_objective_values_accept_good_result():

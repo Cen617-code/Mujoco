@@ -29,14 +29,14 @@ LEG_JOINTS = {
 }
 WHEEL_JOINTS = {"left_wheel_joint", "right_wheel_joint"}
 WHEEL_ACTUATOR_SIGNS = {
-    "left_wheel_joint": 1.0,
-    "right_wheel_joint": -1.0,
+    "left_wheel_joint": -1.0,
+    "right_wheel_joint": 1.0,
 }
 # IMU 名称和 converter 生成的 MJCF sensor 保持一致。
 BASE_IMU_GYRO = "base_imu_gyro"
 BASE_IMU_ACCEL = "base_imu_accel"
 BASE_IMU_QUAT = "base_imu_quat"
-DEFAULT_STANDING_HIP_PITCH = -0.15
+DEFAULT_STANDING_HIP_PITCH = 0.2
 DEFAULT_STANDING_KNEE = 0.35
 
 
@@ -158,10 +158,10 @@ def default_standing_config() -> BalanceConfig:
         pitch_rate_target=0.0,
         x_target=None,
         x_velocity_target=0.0,
-        kp_pitch=35.0,
-        kd_pitch=4.0,
+        kp_pitch=20.0,
+        kd_pitch=6.0,
         kx=0.0,
-        kv=1.0,
+        kv=20.0,
         leg_kp=20.0,
         leg_kd=1.0,
     )
@@ -219,10 +219,9 @@ def compute_balance_control(
         if entry.joint_name not in WHEEL_JOINTS:
             continue
         lower, upper = _actuator_limits(model, entry)
-        # The left and right wheel joint axes are mirrored in world coordinates
-        # (+Y for left, -Y for right near the home pose). Opposite actuator
-        # signs therefore produce the same physical pitch-balancing wheel
-        # torque direction.
+        # The wheel joints share the same local actuator axis in the generated
+        # MJCF. These signs map the scalar balance command to physical wheel
+        # torques that oppose measured body pitch instead of amplifying it.
         signed_tau = WHEEL_ACTUATOR_SIGNS[entry.joint_name] * tau_balance
         ctrl[entry.actuator_id] = np.clip(signed_tau, lower, upper)
         wheel_torque = max(wheel_torque, abs(float(ctrl[entry.actuator_id])))

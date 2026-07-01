@@ -1,27 +1,27 @@
 {
   "candidate": {
-    "hip_pitch": -0.2,
-    "kd_pitch": 2.0,
+    "hip_pitch": 0.2,
+    "kd_pitch": 6.0,
     "knee": 0.35,
     "kp_pitch": 20.0,
-    "kv": 0.5,
-    "kx": 1.0
+    "kv": 20.0,
+    "kx": 0.0
   },
   "result": {
-    "final_abs_pitch": 1.2455979289464187,
+    "final_abs_pitch": 0.013329963184409984,
     "finite": true,
-    "hip_pitch": -0.2,
-    "kd_pitch": 2.0,
+    "hip_pitch": 0.2,
+    "kd_pitch": 6.0,
     "knee": 0.35,
     "kp_pitch": 20.0,
-    "kv": 0.5,
-    "kx": 1.0,
-    "meets_standing_objective": false,
-    "peak_abs_pitch": 1.3992533248384218,
-    "peak_abs_x_drift": 0.3027072200080519,
+    "kv": 20.0,
+    "kx": 0.0,
+    "meets_standing_objective": true,
+    "peak_abs_pitch": 0.13333535943165145,
+    "peak_abs_x_drift": 0.08573679112419542,
     "rank": 1,
-    "standing_score": 1008.5571055854706,
+    "standing_score": 0.40572736272513826,
     "warning_count": 0,
-    "wheel_torque_saturation_fraction": 0.947
+    "wheel_torque_saturation_fraction": 0.0
   }
 }
