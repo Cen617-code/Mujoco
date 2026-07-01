@@ -152,7 +152,7 @@ def default_balance_config() -> BalanceConfig:
 
 
 def default_standing_config() -> BalanceConfig:
-    """Return the current best explicit robust-standing controller config."""
+    """Return the explicit baseline config used by standing diagnostics."""
     return BalanceConfig(
         pitch_target=0.0,
         pitch_rate_target=0.0,
