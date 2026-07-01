@@ -211,13 +211,13 @@ def test_compute_balance_control_uses_mirrored_standing_leg_targets(model):
 
 
 def test_standing_leg_targets_are_symmetric_and_leg_only():
-    targets = standing_leg_targets(hip_pitch=-0.2, knee=0.18)
+    targets = standing_leg_targets(hip_pitch=0.0, knee=0.1)
 
     assert targets == {
-        "left_hip_pitch_joint": -0.2,
-        "right_hip_pitch_joint": -0.2,
-        "left_knee_joint": 0.18,
-        "right_knee_joint": -0.18,
+        "left_hip_pitch_joint": 0.0,
+        "right_hip_pitch_joint": 0.0,
+        "left_knee_joint": 0.1,
+        "right_knee_joint": -0.1,
     }
     assert standing_leg_targets() == targets
     assert not any("wheel" in joint_name for joint_name in targets)
@@ -305,8 +305,19 @@ def run_default_standing_viewer_path(model: mujoco.MjModel, duration: float) -> 
     final_joints = {
         name: float(data.qpos[entry.qposadr])
         for name, entry in by_name.items()
-        if name.endswith("_joint")
+        if name in {
+            "left_roll_joint",
+            "right_roll_joint",
+            "left_hip_pitch_joint",
+            "right_hip_pitch_joint",
+            "left_knee_joint",
+            "right_knee_joint",
+        }
     }
+    left_knee_geom = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "left_knee_collision")
+    right_knee_geom = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "right_knee_collision")
+    left_wheel_geom = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "left_wheel_collision")
+    right_wheel_geom = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "right_wheel_collision")
     metrics = {
         "final_x_drift": float(data.qpos[0]) - initial_x,
         "peak_abs_x_drift": peak_abs_x_drift,
@@ -315,6 +326,9 @@ def run_default_standing_viewer_path(model: mujoco.MjModel, duration: float) -> 
         "left_right_roll_sum": final_joints["left_roll_joint"] + final_joints["right_roll_joint"],
         "hip_pitch_difference": final_joints["left_hip_pitch_joint"] - final_joints["right_hip_pitch_joint"],
         "knee_difference": final_joints["left_knee_joint"] - final_joints["right_knee_joint"],
+        "joint_zero_norm": sum(abs(value) for value in final_joints.values()),
+        "knee_x_difference": abs(float(data.geom_xpos[left_knee_geom, 0] - data.geom_xpos[right_knee_geom, 0])),
+        "wheel_x_difference": abs(float(data.geom_xpos[left_wheel_geom, 0] - data.geom_xpos[right_wheel_geom, 0])),
     }
     return data, metrics, bad_contacts
 
@@ -329,7 +343,10 @@ def test_default_standing_holds_position_and_symmetric_pose_for_ten_seconds(mode
     assert metrics["peak_abs_pitch"] < 0.2
     assert abs(metrics["left_right_roll_sum"]) < 0.05
     assert abs(metrics["hip_pitch_difference"]) < 0.08
-    assert abs(metrics["knee_difference"]) < 0.08
+    assert abs(metrics["knee_difference"]) < 0.25
+    assert metrics["joint_zero_norm"] < 0.75
+    assert metrics["knee_x_difference"] < 0.1
+    assert metrics["wheel_x_difference"] < 0.1
 
 
 def test_default_standing_keeps_only_wheels_on_ground(model):

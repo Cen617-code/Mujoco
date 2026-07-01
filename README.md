@@ -202,10 +202,10 @@ analysis\balance_results\
 analysis\standing_tuning\
 ```
 
-最近一次 216 组候选 sweep 已达到 2 秒目标；同时为了改善 viewer 中的左右腿对称性和长时间原位保持，默认站立控制采用经过 10 秒验证的均衡参数：
+最近一次 216 组候选 sweep 已达到 2 秒目标；同时为了改善 viewer 中的左右腿对称性和近零位观感，默认站立控制采用经过 10 秒验证的近零位参数：
 
 ```text
-hip_pitch=-0.20, left_knee=0.18, right_knee=-0.18, kp_pitch=35.0, kd_pitch=6.0, kx=20.0, kv=12.0, leg_kp=60.0, leg_kd=4.0
+hip_pitch=0.00, left_knee=0.10, right_knee=-0.10, kp_pitch=35.0, kd_pitch=6.0, kx=20.0, kv=12.0, leg_kp=60.0, leg_kd=4.0
 ```
 
 默认 10 秒分析指标：
@@ -213,10 +213,10 @@ hip_pitch=-0.20, left_knee=0.18, right_knee=-0.18, kp_pitch=35.0, kd_pitch=6.0, 
 ```text
 warning_count=0
 finite=True
-final |pitch|=0.016393 rad
-peak |pitch|=0.102774 rad
-peak |x drift|=0.099654 m
-final x drift=-0.048693 m
+final |pitch|=0.098014 rad
+peak |pitch|=0.129012 rad
+peak |x drift|=0.164792 m
+final x drift=-0.161151 m
 non-wheel ground contact count=0
 non-wheel ground contact geoms=none
 wheel torque saturation fraction=0.000
