@@ -2,6 +2,7 @@ import csv
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import mujoco
@@ -184,7 +185,7 @@ def test_leg_joints_receive_posture_pd_torques(model):
     assert ctrl[left_knee.actuator_id] < 0.0
 
 
-def test_compute_balance_control_uses_symmetric_standing_leg_targets(model):
+def test_compute_balance_control_uses_mirrored_standing_leg_targets(model):
     data = mujoco.MjData(model)
     data.qpos[:] = model.qpos0
     data.qvel[:] = 0.0
@@ -204,19 +205,19 @@ def test_compute_balance_control_uses_symmetric_standing_leg_targets(model):
     assert ctrl[by_name["left_hip_pitch_joint"].actuator_id] < 0.0
     assert ctrl[by_name["right_hip_pitch_joint"].actuator_id] < 0.0
     assert ctrl[by_name["left_knee_joint"].actuator_id] > 0.0
-    assert ctrl[by_name["right_knee_joint"].actuator_id] > 0.0
+    assert ctrl[by_name["right_knee_joint"].actuator_id] < 0.0
     assert ctrl[by_name["left_wheel_joint"].actuator_id] == pytest.approx(0.0)
     assert ctrl[by_name["right_wheel_joint"].actuator_id] == pytest.approx(0.0)
 
 
 def test_standing_leg_targets_are_symmetric_and_leg_only():
-    targets = standing_leg_targets(hip_pitch=-0.3, knee=0.25)
+    targets = standing_leg_targets(hip_pitch=-0.2, knee=0.18)
 
     assert targets == {
-        "left_hip_pitch_joint": -0.3,
-        "right_hip_pitch_joint": -0.3,
-        "left_knee_joint": 0.25,
-        "right_knee_joint": 0.25,
+        "left_hip_pitch_joint": -0.2,
+        "right_hip_pitch_joint": -0.2,
+        "left_knee_joint": 0.18,
+        "right_knee_joint": -0.18,
     }
     assert standing_leg_targets() == targets
     assert not any("wheel" in joint_name for joint_name in targets)
@@ -234,8 +235,8 @@ def test_default_standing_config_is_explicit_and_does_not_change_generic_config(
     assert standing.x_velocity_target == pytest.approx(0.0)
     assert standing.kp_pitch == pytest.approx(35.0)
     assert standing.kd_pitch == pytest.approx(6.0)
-    assert standing.kx == pytest.approx(16.0)
-    assert standing.kv == pytest.approx(10.0)
+    assert standing.kx == pytest.approx(20.0)
+    assert standing.kv == pytest.approx(12.0)
     assert standing.leg_kp == pytest.approx(60.0)
     assert standing.leg_kd == pytest.approx(4.0)
 
@@ -273,6 +274,62 @@ def test_default_standing_config_meets_two_second_objective(model):
     assert result.peak_abs_pitch < 0.5
     assert result.peak_abs_x_drift < 0.3
     assert result.meets_standing_objective
+
+
+def run_default_standing_viewer_path(model: mujoco.MjModel, duration: float) -> tuple[mujoco.MjData, dict[str, float], set[str]]:
+    data = mujoco.MjData(model)
+    mujoco.mj_resetData(model, data)
+    data.qpos[:] = model.qpos0
+    data.qvel[:] = 0.0
+    set_base_weld_active(model, data, False)
+    joint_map = build_joint_map(model)
+    config = default_standing_config()
+    if config.x_target is None:
+        config = replace(config, x_target=float(data.qpos[0]))
+    leg_targets = standing_leg_targets()
+    bad_contacts: set[str] = set()
+    initial_x = float(data.qpos[0])
+    peak_abs_x_drift = 0.0
+    peak_abs_pitch = 0.0
+
+    for _ in range(int(duration / model.opt.timestep)):
+        apply_balance_control(model, data, joint_map, config, leg_targets)
+        mujoco.mj_step(model, data)
+        peak_abs_x_drift = max(peak_abs_x_drift, abs(float(data.qpos[0]) - initial_x))
+        peak_abs_pitch = max(peak_abs_pitch, abs(base_pitch(data)))
+        bad_contacts.update(
+            ground_contact_geom_names(model, data) - ALLOWED_STANDING_GROUND_CONTACTS
+        )
+
+    by_name = {entry.joint_name: entry for entry in joint_map}
+    final_joints = {
+        name: float(data.qpos[entry.qposadr])
+        for name, entry in by_name.items()
+        if name.endswith("_joint")
+    }
+    metrics = {
+        "final_x_drift": float(data.qpos[0]) - initial_x,
+        "peak_abs_x_drift": peak_abs_x_drift,
+        "final_pitch": base_pitch(data),
+        "peak_abs_pitch": peak_abs_pitch,
+        "left_right_roll_sum": final_joints["left_roll_joint"] + final_joints["right_roll_joint"],
+        "hip_pitch_difference": final_joints["left_hip_pitch_joint"] - final_joints["right_hip_pitch_joint"],
+        "knee_difference": final_joints["left_knee_joint"] - final_joints["right_knee_joint"],
+    }
+    return data, metrics, bad_contacts
+
+
+def test_default_standing_holds_position_and_symmetric_pose_for_ten_seconds(model):
+    _, metrics, bad_contacts = run_default_standing_viewer_path(model, duration=10.0)
+
+    assert bad_contacts == set()
+    assert abs(metrics["final_x_drift"]) < 0.2
+    assert metrics["peak_abs_x_drift"] < 0.2
+    assert abs(metrics["final_pitch"]) < 0.15
+    assert metrics["peak_abs_pitch"] < 0.2
+    assert abs(metrics["left_right_roll_sum"]) < 0.05
+    assert abs(metrics["hip_pitch_difference"]) < 0.08
+    assert abs(metrics["knee_difference"]) < 0.08
 
 
 def test_default_standing_keeps_only_wheels_on_ground(model):

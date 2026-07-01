@@ -73,10 +73,10 @@ def candidate_grid() -> list[StandingCandidate]:
         for kp_pitch, kd_pitch, kx, kv, hip_pitch, knee, leg_kp, leg_kd in product(
             [15.0, 20.0, 35.0],
             [4.0, 6.0],
-            [0.0, 16.0],
-            [10.0, 20.0],
-            [-0.3, -0.2, 0.2],
-            [0.25, 0.35],
+            [0.0, 16.0, 20.0],
+            [10.0, 12.0],
+            [-0.3, -0.2],
+            [0.18, 0.2, 0.25],
             [60.0],
             [4.0],
         )

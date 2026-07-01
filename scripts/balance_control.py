@@ -36,8 +36,8 @@ WHEEL_ACTUATOR_SIGNS = {
 BASE_IMU_GYRO = "base_imu_gyro"
 BASE_IMU_ACCEL = "base_imu_accel"
 BASE_IMU_QUAT = "base_imu_quat"
-DEFAULT_STANDING_HIP_PITCH = -0.3
-DEFAULT_STANDING_KNEE = 0.25
+DEFAULT_STANDING_HIP_PITCH = -0.2
+DEFAULT_STANDING_KNEE = 0.18
 
 
 @dataclass(frozen=True)
@@ -138,12 +138,17 @@ def standing_leg_targets(
     hip_pitch: float = DEFAULT_STANDING_HIP_PITCH,
     knee: float = DEFAULT_STANDING_KNEE,
 ) -> dict[str, float]:
-    """Return symmetric fixed leg targets for robust-standing attempts."""
+    """Return mirrored fixed leg targets for robust-standing attempts.
+
+    The generated model uses opposite effective knee conventions between the
+    left and right legs.  A positive left knee target and negative right knee
+    target produce a visually symmetric bend.
+    """
     return {
         "left_hip_pitch_joint": float(hip_pitch),
         "right_hip_pitch_joint": float(hip_pitch),
         "left_knee_joint": float(knee),
-        "right_knee_joint": float(knee),
+        "right_knee_joint": -float(knee),
     }
 
 
@@ -160,8 +165,8 @@ def default_standing_config() -> BalanceConfig:
         x_velocity_target=0.0,
         kp_pitch=35.0,
         kd_pitch=6.0,
-        kx=16.0,
-        kv=10.0,
+        kx=20.0,
+        kv=12.0,
         leg_kp=60.0,
         leg_kd=4.0,
     )
