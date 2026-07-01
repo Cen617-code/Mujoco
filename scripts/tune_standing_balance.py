@@ -37,6 +37,8 @@ class StandingCandidate:
     kv: float
     hip_pitch: float
     knee: float
+    leg_kp: float = 60.0
+    leg_kd: float = 4.0
 
     def config(self) -> BalanceConfig:
         return BalanceConfig(
@@ -48,8 +50,8 @@ class StandingCandidate:
             kd_pitch=float(self.kd_pitch),
             kx=float(self.kx),
             kv=float(self.kv),
-            leg_kp=20.0,
-            leg_kd=1.0,
+            leg_kp=float(self.leg_kp),
+            leg_kd=float(self.leg_kd),
         )
 
     def leg_targets(self) -> dict[str, float]:
@@ -65,14 +67,18 @@ def candidate_grid() -> list[StandingCandidate]:
             kv=kv,
             hip_pitch=hip_pitch,
             knee=knee,
+            leg_kp=leg_kp,
+            leg_kd=leg_kd,
         )
-        for kp_pitch, kd_pitch, kx, kv, hip_pitch, knee in product(
-            [20.0, 35.0, 50.0],
-            [2.0, 4.0, 6.0],
+        for kp_pitch, kd_pitch, kx, kv, hip_pitch, knee, leg_kp, leg_kd in product(
+            [15.0, 20.0, 35.0],
+            [4.0, 6.0],
             [0.0, 16.0],
-            [0.5, 20.0],
-            [-0.2, 0.0, 0.2],
-            [0.0, 0.35],
+            [10.0, 20.0],
+            [-0.3, -0.2, 0.2],
+            [0.25, 0.35],
+            [60.0],
+            [4.0],
         )
     ]
 
@@ -81,12 +87,14 @@ def _row_from_result(
     rank: int,
     candidate: StandingCandidate,
     result: BalanceSimulationResult,
-) -> dict[str, float | int | bool]:
-    row: dict[str, float | int | bool] = {
+) -> dict[str, float | int | bool | str]:
+    row: dict[str, float | int | bool | str] = {
         "rank": int(rank),
         **asdict(candidate),
         "warning_count": int(result.warning_count),
         "finite": bool(result.finite),
+        "non_wheel_ground_contact_count": int(result.non_wheel_ground_contact_count),
+        "non_wheel_ground_contact_geoms": result.non_wheel_ground_contact_geoms,
         "final_abs_pitch": float(result.final_abs_pitch),
         "peak_abs_pitch": float(result.peak_abs_pitch),
         "peak_abs_x_drift": float(result.peak_abs_x_drift),
@@ -101,7 +109,7 @@ def run_tuning(
     model: mujoco.MjModel,
     duration: float = 2.0,
     candidates: Iterable[StandingCandidate] | None = None,
-) -> tuple[list[dict[str, float | int | bool]], StandingCandidate | None]:
+) -> tuple[list[dict[str, float | int | bool | str]], StandingCandidate | None]:
     candidate_list = list(candidate_grid() if candidates is None else candidates)
     scored: list[tuple[StandingCandidate, BalanceSimulationResult]] = []
     for candidate in candidate_list:
@@ -123,7 +131,7 @@ def run_tuning(
 
 
 def write_tuning_results(
-    rows: list[dict[str, float | int | bool]],
+    rows: list[dict[str, float | int | bool | str]],
     best: StandingCandidate | None,
     output_dir: Path = DEFAULT_RESULTS,
 ) -> Path:
@@ -137,8 +145,12 @@ def write_tuning_results(
         "kv",
         "hip_pitch",
         "knee",
+        "leg_kp",
+        "leg_kd",
         "warning_count",
         "finite",
+        "non_wheel_ground_contact_count",
+        "non_wheel_ground_contact_geoms",
         "final_abs_pitch",
         "peak_abs_pitch",
         "peak_abs_x_drift",
@@ -172,6 +184,8 @@ def write_tuning_results(
         lines.extend(
             [
                 f"- Best score: {float(best_row['standing_score']):.6g}",
+                f"- Best non-wheel ground contact count: {int(best_row.get('non_wheel_ground_contact_count', 0))}",
+                f"- Best non-wheel ground contact geoms: {best_row.get('non_wheel_ground_contact_geoms') or 'none'}",
                 f"- Best final |pitch|: {float(best_row['final_abs_pitch']):.6g} rad",
                 f"- Best peak |pitch|: {float(best_row['peak_abs_pitch']):.6g} rad",
                 f"- Best peak |x drift|: {float(best_row['peak_abs_x_drift']):.6g} m",

@@ -36,8 +36,8 @@ WHEEL_ACTUATOR_SIGNS = {
 BASE_IMU_GYRO = "base_imu_gyro"
 BASE_IMU_ACCEL = "base_imu_accel"
 BASE_IMU_QUAT = "base_imu_quat"
-DEFAULT_STANDING_HIP_PITCH = 0.2
-DEFAULT_STANDING_KNEE = 0.35
+DEFAULT_STANDING_HIP_PITCH = -0.3
+DEFAULT_STANDING_KNEE = 0.25
 
 
 @dataclass(frozen=True)
@@ -158,12 +158,12 @@ def default_standing_config() -> BalanceConfig:
         pitch_rate_target=0.0,
         x_target=None,
         x_velocity_target=0.0,
-        kp_pitch=20.0,
+        kp_pitch=35.0,
         kd_pitch=6.0,
-        kx=0.0,
-        kv=20.0,
-        leg_kp=20.0,
-        leg_kd=1.0,
+        kx=16.0,
+        kv=10.0,
+        leg_kp=60.0,
+        leg_kd=4.0,
     )
 
 

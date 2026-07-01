@@ -188,6 +188,7 @@ analysis\balance_results\
 - final `|pitch| < 0.25 rad`
 - peak `|pitch| < 0.5 rad`
 - peak `|x drift| < 0.3 m`
+- 非轮子部件不能接触地面，即只允许左右轮接触地面
 
 当前已实现确定性 sweep 调参入口：
 
@@ -201,10 +202,10 @@ analysis\balance_results\
 analysis\standing_tuning\
 ```
 
-最近一次 216 组候选 sweep 已达到目标，最佳候选已固化为默认站立控制参数：
+最近一次 144 组候选 sweep 已达到目标，最佳候选已固化为默认站立控制参数：
 
 ```text
-hip_pitch=0.20, knee=0.35, kp_pitch=20.0, kd_pitch=6.0, kx=0.0, kv=20.0
+hip_pitch=-0.30, knee=0.25, kp_pitch=35.0, kd_pitch=6.0, kx=16.0, kv=10.0, leg_kp=60.0, leg_kd=4.0
 ```
 
 对应指标：
@@ -212,9 +213,11 @@ hip_pitch=0.20, knee=0.35, kp_pitch=20.0, kd_pitch=6.0, kx=0.0, kv=20.0
 ```text
 warning_count=0
 finite=True
-final |pitch|=0.01333 rad
-peak |pitch|=0.133335 rad
-peak |x drift|=0.085737 m
+final |pitch|=0.001453 rad
+peak |pitch|=0.104400 rad
+peak |x drift|=0.072170 m
+non-wheel ground contact count=0
+non-wheel ground contact geoms=none
 wheel torque saturation fraction=0.000
 standing objective met=True
 ```
@@ -246,7 +249,7 @@ standing objective met=True
 当前版本测试结果：
 
 ```text
-57 passed in tests
+59 passed in tests
 ```
 
 模型诊断摘要：

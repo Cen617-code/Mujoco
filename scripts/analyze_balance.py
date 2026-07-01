@@ -37,6 +37,10 @@ DEFAULT_MODEL = ROOT / "8dof_URDF" / "mjcf" / "robot.xml"
 DEFAULT_RESULTS = ROOT / "analysis" / "balance_results"
 WHEEL_TORQUE_LIMIT_NM = 10.0
 TORQUE_LIMIT_EPSILON = 1e-9
+ALLOWED_STANDING_GROUND_CONTACT_GEOMS = {
+    "left_wheel_collision",
+    "right_wheel_collision",
+}
 STANDING_FINAL_ABS_PITCH_LIMIT = 0.25
 STANDING_PEAK_ABS_PITCH_LIMIT = 0.5
 STANDING_PEAK_ABS_X_DRIFT_LIMIT = 0.3
@@ -62,6 +66,8 @@ class BalanceSimulationResult:
     peak_abs_pitch_rate: float
     peak_abs_wheel_torque: float
     wheel_torque_saturation_fraction: float
+    non_wheel_ground_contact_count: int
+    non_wheel_ground_contact_geoms: str
     final_base_height: float
     meets_standing_objective: bool
     standing_score: float
@@ -70,6 +76,25 @@ class BalanceSimulationResult:
 
 def _warning_count(data: mujoco.MjData) -> int:
     return int(sum(int(warning.number) for warning in data.warning))
+
+
+def _ground_contact_geom_names(model: mujoco.MjModel, data: mujoco.MjData) -> set[str]:
+    floor = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+    names: set[str] = set()
+    for index in range(data.ncon):
+        contact = data.contact[index]
+        if floor not in (contact.geom1, contact.geom2):
+            continue
+        other = contact.geom2 if contact.geom1 == floor else contact.geom1
+        names.add(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, other) or "")
+    return names
+
+
+def _non_wheel_ground_contact_names(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+) -> set[str]:
+    return _ground_contact_geom_names(model, data) - ALLOWED_STANDING_GROUND_CONTACT_GEOMS
 
 
 def _finite(data: mujoco.MjData, ctrl: np.ndarray) -> bool:
@@ -84,6 +109,7 @@ def meets_standing_objective_values(
     *,
     warning_count: int,
     finite: bool,
+    non_wheel_ground_contact_count: int,
     final_abs_pitch: float,
     peak_abs_pitch: float,
     peak_abs_x_drift: float,
@@ -91,6 +117,7 @@ def meets_standing_objective_values(
     return (
         int(warning_count) == 0
         and bool(finite)
+        and int(non_wheel_ground_contact_count) == 0
         and float(final_abs_pitch) < STANDING_FINAL_ABS_PITCH_LIMIT
         and float(peak_abs_pitch) < STANDING_PEAK_ABS_PITCH_LIMIT
         and float(peak_abs_x_drift) < STANDING_PEAK_ABS_X_DRIFT_LIMIT
@@ -101,6 +128,7 @@ def standing_score_values(
     *,
     warning_count: int,
     finite: bool,
+    non_wheel_ground_contact_count: int,
     final_abs_pitch: float,
     peak_abs_pitch: float,
     peak_abs_x_drift: float,
@@ -114,9 +142,15 @@ def standing_score_values(
     ]
     try:
         warning_count_value = int(warning_count)
+        contact_count_value = int(non_wheel_ground_contact_count)
     except (TypeError, ValueError, OverflowError):
         return STANDING_FAILURE_SCORE
-    if warning_count_value != 0 or not bool(finite) or not np.isfinite(values).all():
+    if (
+        warning_count_value != 0
+        or contact_count_value != 0
+        or not bool(finite)
+        or not np.isfinite(values).all()
+    ):
         return STANDING_FAILURE_SCORE
     score = (
         4.0 * float(final_abs_pitch)
@@ -165,6 +199,8 @@ def run_balance_simulation(
     timestep = float(model.opt.timestep)
     steps = max(1, int(np.ceil(float(duration) / timestep)))
     finite = True
+    non_wheel_ground_contact_count = 0
+    non_wheel_ground_contact_names: set[str] = set()
     timeseries: list[dict[str, float]] = []
 
     for _ in range(steps):
@@ -173,6 +209,9 @@ def run_balance_simulation(
         finite = finite and _finite(data, ctrl)
         mujoco.mj_step(model, data)
         finite = finite and _finite(data, ctrl)
+        bad_contacts = _non_wheel_ground_contact_names(model, data)
+        non_wheel_ground_contact_count += len(bad_contacts)
+        non_wheel_ground_contact_names.update(bad_contacts)
         state = _sample_balance_state(data, applied_state.wheel_torque)
         x_drift = state.x - initial_x
         timeseries.append(
@@ -204,6 +243,7 @@ def run_balance_simulation(
     meets_objective = meets_standing_objective_values(
         warning_count=warning_count,
         finite=finite,
+        non_wheel_ground_contact_count=non_wheel_ground_contact_count,
         final_abs_pitch=final_abs_pitch,
         peak_abs_pitch=peak_abs_pitch,
         peak_abs_x_drift=peak_abs_x_drift,
@@ -211,6 +251,7 @@ def run_balance_simulation(
     score = standing_score_values(
         warning_count=warning_count,
         finite=finite,
+        non_wheel_ground_contact_count=non_wheel_ground_contact_count,
         final_abs_pitch=final_abs_pitch,
         peak_abs_pitch=peak_abs_pitch,
         peak_abs_x_drift=peak_abs_x_drift,
@@ -233,6 +274,8 @@ def run_balance_simulation(
         peak_abs_pitch_rate=peak_abs_pitch_rate,
         peak_abs_wheel_torque=peak_abs_wheel_torque,
         wheel_torque_saturation_fraction=wheel_torque_saturation_fraction,
+        non_wheel_ground_contact_count=non_wheel_ground_contact_count,
+        non_wheel_ground_contact_geoms=";".join(sorted(non_wheel_ground_contact_names)),
         final_base_height=final_sample["base_height"],
         meets_standing_objective=meets_objective,
         standing_score=score,
@@ -263,6 +306,8 @@ def write_balance_results(
         "peak_abs_pitch_rate",
         "peak_abs_wheel_torque",
         "wheel_torque_saturation_fraction",
+        "non_wheel_ground_contact_count",
+        "non_wheel_ground_contact_geoms",
         "final_base_height",
         "meets_standing_objective",
         "standing_score",
@@ -306,6 +351,8 @@ def write_balance_results(
         f"- Final x drift: {result.x_drift:.6g} m",
         f"- Peak |wheel torque|: {result.peak_abs_wheel_torque:.6g} N·m",
         f"- Wheel torque saturation fraction: {result.wheel_torque_saturation_fraction:.3f}",
+        f"- Non-wheel ground contact count: {result.non_wheel_ground_contact_count}",
+        f"- Non-wheel ground contact geoms: {result.non_wheel_ground_contact_geoms or 'none'}",
         f"- Final base height: {result.final_base_height:.6g} m",
         "",
         "This is a first-pass in-place balance prototype, not walking or trajectory tracking.",

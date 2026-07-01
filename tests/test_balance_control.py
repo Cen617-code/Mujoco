@@ -10,7 +10,7 @@ import pytest
 
 import scripts.analyze_balance as analyze_balance
 from scripts.convert_urdf_to_mjcf import convert_urdf
-from scripts.pd_control import build_joint_map
+from scripts.pd_control import build_joint_map, set_base_weld_active
 from scripts.balance_control import (
     BalanceConfig,
     apply_balance_control,
@@ -34,6 +34,10 @@ from scripts.analyze_balance import (
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "8dof_URDF" / "urdf" / "robot.urdf"
 MODEL_XML = ROOT / "8dof_URDF" / "mjcf" / "robot.xml"
+ALLOWED_STANDING_GROUND_CONTACTS = {
+    "left_wheel_collision",
+    "right_wheel_collision",
+}
 
 
 @pytest.fixture(scope="session")
@@ -44,6 +48,18 @@ def model() -> mujoco.MjModel:
 
 def quat_y_rotation(angle: float) -> np.ndarray:
     return np.array([np.cos(angle / 2.0), 0.0, np.sin(angle / 2.0), 0.0])
+
+
+def ground_contact_geom_names(model: mujoco.MjModel, data: mujoco.MjData) -> set[str]:
+    floor = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+    names: set[str] = set()
+    for index in range(data.ncon):
+        contact = data.contact[index]
+        if floor not in (contact.geom1, contact.geom2):
+            continue
+        other = contact.geom2 if contact.geom1 == floor else contact.geom1
+        names.add(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, other) or "")
+    return names
 
 
 def test_quat_to_pitch_extracts_small_y_axis_rotation():
@@ -194,13 +210,13 @@ def test_compute_balance_control_uses_symmetric_standing_leg_targets(model):
 
 
 def test_standing_leg_targets_are_symmetric_and_leg_only():
-    targets = standing_leg_targets(hip_pitch=0.2, knee=0.35)
+    targets = standing_leg_targets(hip_pitch=-0.3, knee=0.25)
 
     assert targets == {
-        "left_hip_pitch_joint": 0.2,
-        "right_hip_pitch_joint": 0.2,
-        "left_knee_joint": 0.35,
-        "right_knee_joint": 0.35,
+        "left_hip_pitch_joint": -0.3,
+        "right_hip_pitch_joint": -0.3,
+        "left_knee_joint": 0.25,
+        "right_knee_joint": 0.25,
     }
     assert standing_leg_targets() == targets
     assert not any("wheel" in joint_name for joint_name in targets)
@@ -216,12 +232,12 @@ def test_default_standing_config_is_explicit_and_does_not_change_generic_config(
     assert standing.pitch_rate_target == pytest.approx(0.0)
     assert standing.x_target is None
     assert standing.x_velocity_target == pytest.approx(0.0)
-    assert standing.kp_pitch == pytest.approx(20.0)
+    assert standing.kp_pitch == pytest.approx(35.0)
     assert standing.kd_pitch == pytest.approx(6.0)
-    assert standing.kx == pytest.approx(0.0)
-    assert standing.kv == pytest.approx(20.0)
-    assert standing.leg_kp == pytest.approx(20.0)
-    assert standing.leg_kd == pytest.approx(1.0)
+    assert standing.kx == pytest.approx(16.0)
+    assert standing.kv == pytest.approx(10.0)
+    assert standing.leg_kp == pytest.approx(60.0)
+    assert standing.leg_kd == pytest.approx(4.0)
 
 
 def test_apply_balance_control_writes_model_ctrl(model):
@@ -251,16 +267,40 @@ def test_default_standing_config_meets_two_second_objective(model):
 
     assert result.warning_count == 0
     assert result.finite
+    assert result.non_wheel_ground_contact_count == 0
+    assert result.non_wheel_ground_contact_geoms == ""
     assert result.final_abs_pitch < 0.25
     assert result.peak_abs_pitch < 0.5
     assert result.peak_abs_x_drift < 0.3
     assert result.meets_standing_objective
 
 
+def test_default_standing_keeps_only_wheels_on_ground(model):
+    data = mujoco.MjData(model)
+    mujoco.mj_resetData(model, data)
+    data.qpos[:] = model.qpos0
+    data.qvel[:] = 0.0
+    set_base_weld_active(model, data, False)
+    joint_map = build_joint_map(model)
+    config = default_standing_config()
+    leg_targets = standing_leg_targets()
+    bad_contacts: set[str] = set()
+
+    for _ in range(2000):
+        apply_balance_control(model, data, joint_map, config, leg_targets)
+        mujoco.mj_step(model, data)
+        bad_contacts.update(
+            ground_contact_geom_names(model, data) - ALLOWED_STANDING_GROUND_CONTACTS
+        )
+
+    assert bad_contacts == set()
+
+
 def test_standing_objective_values_accept_good_result():
     assert meets_standing_objective_values(
         warning_count=0,
         finite=True,
+        non_wheel_ground_contact_count=0,
         final_abs_pitch=0.1,
         peak_abs_pitch=0.2,
         peak_abs_x_drift=0.05,
@@ -270,11 +310,12 @@ def test_standing_objective_values_accept_good_result():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"warning_count": 1, "finite": True, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
-        {"warning_count": 0, "finite": False, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
-        {"warning_count": 0, "finite": True, "final_abs_pitch": 0.25, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
-        {"warning_count": 0, "finite": True, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.5, "peak_abs_x_drift": 0.05},
-        {"warning_count": 0, "finite": True, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.3},
+        {"warning_count": 1, "finite": True, "non_wheel_ground_contact_count": 0, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": False, "non_wheel_ground_contact_count": 0, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": True, "non_wheel_ground_contact_count": 1, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": True, "non_wheel_ground_contact_count": 0, "final_abs_pitch": 0.25, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": True, "non_wheel_ground_contact_count": 0, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.5, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": True, "non_wheel_ground_contact_count": 0, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.3},
     ],
 )
 def test_standing_objective_values_reject_failures(kwargs):
@@ -285,6 +326,7 @@ def test_standing_score_values_penalizes_warning_and_nonfinite_results():
     good_score = standing_score_values(
         warning_count=0,
         finite=True,
+        non_wheel_ground_contact_count=0,
         final_abs_pitch=0.1,
         peak_abs_pitch=0.2,
         peak_abs_x_drift=0.05,
@@ -293,6 +335,7 @@ def test_standing_score_values_penalizes_warning_and_nonfinite_results():
     warning_score = standing_score_values(
         warning_count=1,
         finite=True,
+        non_wheel_ground_contact_count=0,
         final_abs_pitch=0.1,
         peak_abs_pitch=0.2,
         peak_abs_x_drift=0.05,
@@ -301,6 +344,7 @@ def test_standing_score_values_penalizes_warning_and_nonfinite_results():
     nonfinite_score = standing_score_values(
         warning_count=0,
         finite=False,
+        non_wheel_ground_contact_count=0,
         final_abs_pitch=0.1,
         peak_abs_pitch=0.2,
         peak_abs_x_drift=0.05,
@@ -326,6 +370,7 @@ def test_standing_score_values_returns_failure_for_nonfinite_inputs(overrides):
     kwargs = {
         "warning_count": 0,
         "finite": True,
+        "non_wheel_ground_contact_count": 0,
         "final_abs_pitch": 0.1,
         "peak_abs_pitch": 0.2,
         "peak_abs_x_drift": 0.05,
@@ -453,6 +498,7 @@ def test_balance_simulation_summary_matches_final_sample(model):
     assert result.meets_standing_objective == meets_standing_objective_values(
         warning_count=result.warning_count,
         finite=result.finite,
+        non_wheel_ground_contact_count=result.non_wheel_ground_contact_count,
         final_abs_pitch=result.final_abs_pitch,
         peak_abs_pitch=result.peak_abs_pitch,
         peak_abs_x_drift=result.peak_abs_x_drift,
@@ -461,6 +507,7 @@ def test_balance_simulation_summary_matches_final_sample(model):
         standing_score_values(
             warning_count=result.warning_count,
             finite=result.finite,
+            non_wheel_ground_contact_count=result.non_wheel_ground_contact_count,
             final_abs_pitch=result.final_abs_pitch,
             peak_abs_pitch=result.peak_abs_pitch,
             peak_abs_x_drift=result.peak_abs_x_drift,
@@ -510,6 +557,8 @@ def test_write_balance_results_notes_wheel_torque_saturation(tmp_path):
         peak_abs_pitch_rate=5.0,
         peak_abs_wheel_torque=10.0,
         wheel_torque_saturation_fraction=1.0,
+        non_wheel_ground_contact_count=0,
+        non_wheel_ground_contact_geoms="",
         final_base_height=0.12,
         meets_standing_objective=False,
         standing_score=100.0,
