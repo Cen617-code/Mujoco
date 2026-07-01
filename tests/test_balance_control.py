@@ -22,7 +22,9 @@ from scripts.balance_control import (
 )
 from scripts.analyze_balance import (
     BalanceSimulationResult,
+    meets_standing_objective_values,
     run_balance_simulation,
+    standing_score_values,
     write_balance_results,
 )
 
@@ -243,6 +245,61 @@ def test_balance_simulation_runs_finite(model):
     assert np.isfinite(result.final_pitch)
 
 
+def test_standing_objective_values_accept_good_result():
+    assert meets_standing_objective_values(
+        warning_count=0,
+        finite=True,
+        final_abs_pitch=0.1,
+        peak_abs_pitch=0.2,
+        peak_abs_x_drift=0.05,
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"warning_count": 1, "finite": True, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": False, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": True, "final_abs_pitch": 0.25, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": True, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.5, "peak_abs_x_drift": 0.05},
+        {"warning_count": 0, "finite": True, "final_abs_pitch": 0.1, "peak_abs_pitch": 0.2, "peak_abs_x_drift": 0.3},
+    ],
+)
+def test_standing_objective_values_reject_failures(kwargs):
+    assert not meets_standing_objective_values(**kwargs)
+
+
+def test_standing_score_values_penalizes_warning_and_nonfinite_results():
+    good_score = standing_score_values(
+        warning_count=0,
+        finite=True,
+        final_abs_pitch=0.1,
+        peak_abs_pitch=0.2,
+        peak_abs_x_drift=0.05,
+        wheel_torque_saturation_fraction=0.0,
+    )
+    warning_score = standing_score_values(
+        warning_count=1,
+        finite=True,
+        final_abs_pitch=0.1,
+        peak_abs_pitch=0.2,
+        peak_abs_x_drift=0.05,
+        wheel_torque_saturation_fraction=0.0,
+    )
+    nonfinite_score = standing_score_values(
+        warning_count=0,
+        finite=False,
+        final_abs_pitch=0.1,
+        peak_abs_pitch=0.2,
+        peak_abs_x_drift=0.05,
+        wheel_torque_saturation_fraction=0.0,
+    )
+
+    assert good_score == pytest.approx(4.0 * 0.1 + 2.0 * 0.2 + 0.05)
+    assert warning_score > 1_000.0
+    assert nonfinite_score > 1_000.0
+
+
 def test_balance_simulation_defaults_none_x_target_to_initial_base_x(model, monkeypatch):
     captured_x_targets: list[float | None] = []
     original_apply_balance_control = analyze_balance.apply_balance_control
@@ -277,6 +334,9 @@ def test_balance_simulation_summary_matches_final_sample(model):
     final_sample = result.timeseries[-1]
     assert result.final_pitch == pytest.approx(final_sample["pitch"])
     assert result.final_base_height == pytest.approx(final_sample["base_height"])
+    assert result.final_x == pytest.approx(final_sample["x"])
+    assert result.x_drift == pytest.approx(result.final_x - result.initial_x)
+    assert result.final_abs_pitch == pytest.approx(abs(result.final_pitch))
     assert result.peak_abs_pitch == pytest.approx(
         max(abs(sample["pitch"]) for sample in result.timeseries)
     )
@@ -285,6 +345,27 @@ def test_balance_simulation_summary_matches_final_sample(model):
     )
     assert result.peak_abs_wheel_torque == pytest.approx(
         max(abs(sample["wheel_torque"]) for sample in result.timeseries)
+    )
+    assert result.peak_abs_x_drift == pytest.approx(
+        max(abs(sample["x_drift"]) for sample in result.timeseries)
+    )
+    assert 0.0 <= result.wheel_torque_saturation_fraction <= 1.0
+    assert result.meets_standing_objective == meets_standing_objective_values(
+        warning_count=result.warning_count,
+        finite=result.finite,
+        final_abs_pitch=result.final_abs_pitch,
+        peak_abs_pitch=result.peak_abs_pitch,
+        peak_abs_x_drift=result.peak_abs_x_drift,
+    )
+    assert result.standing_score == pytest.approx(
+        standing_score_values(
+            warning_count=result.warning_count,
+            finite=result.finite,
+            final_abs_pitch=result.final_abs_pitch,
+            peak_abs_pitch=result.peak_abs_pitch,
+            peak_abs_x_drift=result.peak_abs_x_drift,
+            wheel_torque_saturation_fraction=result.wheel_torque_saturation_fraction,
+        )
     )
 
 
@@ -305,6 +386,7 @@ def test_write_balance_results_outputs_planned_files(model, tmp_path):
             "pitch_rate",
             "x",
             "x_velocity",
+            "x_drift",
             "wheel_torque",
             "base_height",
         ]
@@ -318,18 +400,27 @@ def test_write_balance_results_notes_wheel_torque_saturation(tmp_path):
         steps=2000,
         warning_count=0,
         finite=True,
+        initial_x=0.0,
+        final_x=0.1,
+        x_drift=0.1,
+        peak_abs_x_drift=0.1,
         peak_abs_pitch=1.0,
         final_pitch=0.5,
+        final_abs_pitch=0.5,
         peak_abs_pitch_rate=5.0,
         peak_abs_wheel_torque=10.0,
+        wheel_torque_saturation_fraction=1.0,
         final_base_height=0.12,
+        meets_standing_objective=False,
+        standing_score=100.0,
         timeseries=[
             {
                 "time": 0.001,
                 "pitch": 0.1,
                 "pitch_rate": 0.2,
-                "x": 0.0,
+                "x": 0.1,
                 "x_velocity": 0.0,
+                "x_drift": 0.1,
                 "wheel_torque": 10.0,
                 "base_height": 0.12,
             }
