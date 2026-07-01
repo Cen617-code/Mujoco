@@ -1,4 +1,5 @@
 import csv
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -492,6 +493,74 @@ def test_write_balance_results_notes_wheel_torque_saturation(tmp_path):
     report = (tmp_path / "balance_report.md").read_text(encoding="utf-8")
     assert "reached the ±10 N·m wheel torque limit" in report
     assert "do not demonstrate robust standing or walking" in report
+
+
+def test_write_standing_tuning_results_outputs_planned_files(tmp_path):
+    from scripts.tune_standing_balance import StandingCandidate, write_tuning_results
+
+    rows = [
+        {
+            "rank": 1,
+            "kp_pitch": 30.0,
+            "kd_pitch": 4.0,
+            "kx": 0.5,
+            "kv": 1.0,
+            "hip_pitch": -0.15,
+            "knee": 0.35,
+            "warning_count": 0,
+            "finite": True,
+            "final_abs_pitch": 0.1,
+            "peak_abs_pitch": 0.2,
+            "peak_abs_x_drift": 0.05,
+            "wheel_torque_saturation_fraction": 0.0,
+            "standing_score": 0.85,
+            "meets_standing_objective": True,
+        }
+    ]
+    best = StandingCandidate(
+        kp_pitch=30.0,
+        kd_pitch=4.0,
+        kx=0.5,
+        kv=1.0,
+        hip_pitch=-0.15,
+        knee=0.35,
+    )
+
+    output_dir = write_tuning_results(rows, best, tmp_path)
+
+    assert output_dir == tmp_path
+    assert (tmp_path / "standing_tuning_results.csv").is_file()
+    assert (tmp_path / "standing_best_config.json").is_file()
+    assert (tmp_path / "standing_tuning_report.md").is_file()
+    best_config = json.loads((tmp_path / "standing_best_config.json").read_text(encoding="utf-8"))
+    assert best_config["candidate"]["kp_pitch"] == pytest.approx(30.0)
+    report = (tmp_path / "standing_tuning_report.md").read_text(encoding="utf-8")
+    assert "Robust Standing Tuning" in report
+    assert "Objective met: True" in report
+
+
+def test_run_standing_tuning_smoke_returns_finite_candidate(model):
+    from scripts.tune_standing_balance import StandingCandidate, run_tuning
+
+    rows, best = run_tuning(
+        model,
+        duration=0.02,
+        candidates=[
+            StandingCandidate(
+                kp_pitch=10.0,
+                kd_pitch=1.0,
+                kx=0.0,
+                kv=0.5,
+                hip_pitch=-0.15,
+                knee=0.35,
+            )
+        ],
+    )
+
+    assert len(rows) == 1
+    assert best is not None
+    assert rows[0]["finite"]
+    assert np.isfinite(rows[0]["standing_score"])
 
 
 def test_run_balance_viewer_help_succeeds():
