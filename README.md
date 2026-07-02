@@ -1,6 +1,6 @@
 # MuJoCo 8-DOF Wheeled Biped
 
-一个基于 MuJoCo 的 8 自由度双足轮式机器人模型项目，包含 URDF 到 MJCF 转换、free-base 动力学模型、8 个力矩电机、Python PD 关节控制、固定基座阶跃响应分析、free-base 数值稳定性验证、轮式站立平衡诊断/调参流程，以及第一版前后短推抗扰动验证。
+一个基于 MuJoCo 的 8 自由度双足轮式机器人模型项目，包含 URDF 到 MJCF 转换、free-base 动力学模型、8 个力矩电机、Python PD 关节控制、固定基座阶跃响应分析、free-base 数值稳定性验证、轮式站立平衡诊断/调参流程、前后短推抗扰动验证，以及第一版轮式速度行走控制。
 
 ## 当前状态
 
@@ -18,6 +18,7 @@
 - 包含 free-base 姿态保持有限动力学验证
 - 包含原地站立平衡分析、确定性参数 sweep 和结果报告
 - 包含 `±50 N` 前后水平短推抗扰动分析和 viewer 可视化入口
+- 包含 `0.25 m/s` 轮式速度行走分析和 viewer 可视化入口
 
 ## 快速开始
 
@@ -88,6 +89,10 @@ analysis/
     disturbance_report.md
     disturbance_summary.csv
     disturbance_timeseries.csv
+  walking_results/
+    walking_report.md
+    walking_summary.csv
+    walking_timeseries.csv
   standing_tuning/
     standing_tuning_report.md
     standing_tuning_results.csv
@@ -98,8 +103,11 @@ scripts/
   analyze_dynamics.py
   analyze_balance.py
   analyze_disturbance.py
+  analyze_walking.py
+  walking_control.py
   tune_standing_balance.py
   run_balance_viewer.py
+  run_walking_viewer.py
 tests/
   test_passive_mjcf.py
   test_motor_control_dynamics.py
@@ -296,12 +304,62 @@ analysis\disturbance_results\
 .\.venv\Scripts\python.exe scripts\run_balance_viewer.py --no-regenerate --push-force -50 --push-start 1.0 --push-duration 0.1
 ```
 
+### 行走控制 v1
+
+行走控制 v1 是轮式速度行走：腿部保持当前近零位对称站姿，轮子同时负责 pitch 平衡和前进速度跟踪。它还不是摆腿步态控制。
+
+当前坐标/命令约定：
+
+```text
+positive forward velocity => 机器人视觉上向前走，对应 world X 负方向
+```
+
+默认行走参数：
+
+```text
+forward_velocity = 0.25 m/s
+ramp_time        = 2.0 s
+duration         = 8.0 s
+kv               = 6.0
+```
+
+运行默认行走分析：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\analyze_walking.py
+```
+
+输出目录：
+
+```text
+analysis\walking_results\
+```
+
+最近一次默认行走分析结果：
+
+```text
+walking objective met=True
+forward distance=2.191178 m
+world X displacement=-2.191178 m
+average forward velocity last 2s=0.250946 m/s
+peak |pitch|=0.100412 rad
+peak |wheel torque|=1.067500 N·m
+wheel torque saturation fraction=0.000
+non-wheel ground contact count=0
+```
+
+在 MuJoCo Viewer 里看默认行走：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_walking_viewer.py --no-regenerate --velocity 0.25
+```
+
 ## 当前限制
 
-- 目前只是第一版原地 pitch 平衡原型，不是完整轮式双足平衡/行走控制器。
+- 当前行走 v1 是轮式速度行走，不是完整摆腿步态、转向或路径跟踪控制器。
 - free-base 仿真允许机器人按真实动力学自然倒下。
 - Viewer 直接打开 XML 时不会自动运行 Python PD 控制器。
-- 当前抗扰动 v1 只覆盖前后方向 `±50 N`、`0.1 s` 的短推，不代表已经具备侧向抗扰动、随机扰动、复杂地形或行走能力。
+- 当前抗扰动 v1 只覆盖前后方向 `±50 N`、`0.1 s` 的短推，不代表已经具备侧向抗扰动、随机扰动或复杂地形能力。
 - 阶跃响应中的 `nan` 表示该关节在分析时间内没有达到对应指标，例如没有达到 90% 上升或没有进入 2% 稳态区间。
 
 ## 最近验证结果
@@ -309,7 +367,7 @@ analysis\disturbance_results\
 当前版本测试结果：
 
 ```text
-64 passed in tests
+68 passed in tests
 ```
 
 模型诊断摘要：

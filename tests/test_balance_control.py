@@ -420,6 +420,60 @@ def test_write_disturbance_results_outputs_planned_files(model, tmp_path):
     assert "Default push forces: -50 N, +50 N" in report
 
 
+def test_default_walking_config_uses_forward_velocity_convention():
+    from scripts.walking_control import (
+        DEFAULT_FORWARD_VELOCITY,
+        DEFAULT_RAMP_TIME,
+        DEFAULT_WALKING_KV,
+        WalkingConfig,
+        balance_x_velocity_target,
+        ramped_forward_velocity,
+    )
+
+    assert DEFAULT_FORWARD_VELOCITY == pytest.approx(0.25)
+    assert DEFAULT_RAMP_TIME == pytest.approx(2.0)
+    assert DEFAULT_WALKING_KV == pytest.approx(6.0)
+    config = WalkingConfig(forward_velocity=0.25, ramp_time=2.0)
+
+    assert ramped_forward_velocity(config, 0.0) == pytest.approx(0.0)
+    assert ramped_forward_velocity(config, 1.0) == pytest.approx(0.125)
+    assert ramped_forward_velocity(config, 3.0) == pytest.approx(0.25)
+    # Positive user-facing forward velocity uses a positive balance-controller
+    # x-velocity command; with the current wheel actuator signs this rolls the
+    # robot toward world -X.
+    assert balance_x_velocity_target(config, 3.0) == pytest.approx(0.25)
+
+
+def test_default_walking_simulation_meets_v1_objective(model):
+    from scripts.analyze_walking import run_walking_simulation
+
+    result = run_walking_simulation(model, duration=8.0)
+
+    assert result.warning_count == 0
+    assert result.finite
+    assert result.non_wheel_ground_contact_count == 0
+    assert result.forward_distance > 1.0
+    assert abs(result.average_forward_velocity_last_window - 0.25) < 0.08
+    assert result.peak_abs_pitch < 0.3
+    assert result.wheel_torque_saturation_fraction < 0.2
+    assert result.meets_walking_objective
+
+
+def test_write_walking_results_outputs_planned_files(model, tmp_path):
+    from scripts.analyze_walking import run_walking_simulation, write_walking_results
+
+    result = run_walking_simulation(model, duration=0.05, velocity_window=0.02)
+    output_dir = write_walking_results(result, tmp_path)
+
+    assert output_dir == tmp_path
+    assert (tmp_path / "walking_summary.csv").is_file()
+    assert (tmp_path / "walking_timeseries.csv").is_file()
+    assert (tmp_path / "walking_report.md").is_file()
+    report = (tmp_path / "walking_report.md").read_text(encoding="utf-8")
+    assert "Walking Control Analysis" in report
+    assert "positive forward velocity maps to world -X" in report
+
+
 def test_standing_objective_values_accept_good_result():
     assert meets_standing_objective_values(
         warning_count=0,
@@ -789,3 +843,21 @@ def test_run_balance_viewer_help_succeeds():
     assert "--push-force" in completed.stdout
     assert "--push-start" in completed.stdout
     assert "--push-duration" in completed.stdout
+
+
+def test_run_walking_viewer_help_succeeds():
+    script = ROOT / "scripts" / "run_walking_viewer.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 0
+    assert "--velocity" in completed.stdout
+    assert "--ramp-time" in completed.stdout
+    assert "--duration" in completed.stdout
+    assert "--no-regenerate" in completed.stdout
