@@ -1,6 +1,6 @@
 # MuJoCo 8-DOF Wheeled Biped
 
-一个基于 MuJoCo 的 8 自由度双足轮式机器人模型项目，包含 URDF 到 MJCF 转换、free-base 动力学模型、8 个力矩电机、Python PD 关节控制、固定基座阶跃响应分析、free-base 数值稳定性验证，以及第一版轮式站立平衡诊断/调参流程。
+一个基于 MuJoCo 的 8 自由度双足轮式机器人模型项目，包含 URDF 到 MJCF 转换、free-base 动力学模型、8 个力矩电机、Python PD 关节控制、固定基座阶跃响应分析、free-base 数值稳定性验证、轮式站立平衡诊断/调参流程，以及第一版前后短推抗扰动验证。
 
 ## 当前状态
 
@@ -17,6 +17,7 @@
 - 包含固定基座单关节阶跃响应分析
 - 包含 free-base 姿态保持有限动力学验证
 - 包含原地站立平衡分析、确定性参数 sweep 和结果报告
+- 包含 `±50 N` 前后水平短推抗扰动分析和 viewer 可视化入口
 
 ## 快速开始
 
@@ -83,6 +84,10 @@ analysis/
     balance_report.md
     balance_summary.csv
     balance_timeseries.csv
+  disturbance_results/
+    disturbance_report.md
+    disturbance_summary.csv
+    disturbance_timeseries.csv
   standing_tuning/
     standing_tuning_report.md
     standing_tuning_results.csv
@@ -92,6 +97,7 @@ scripts/
   pd_control.py
   analyze_dynamics.py
   analyze_balance.py
+  analyze_disturbance.py
   tune_standing_balance.py
   run_balance_viewer.py
 tests/
@@ -154,11 +160,12 @@ analysis\results\dynamics_report.md
 
 第一版机身平衡控制使用腿部 PD 保持名义站立关节姿态，并用左右轮调节机身 pitch。pitch 反馈在模型提供 IMU 时来自 `base_imu_quat` 和 `base_imu_gyro`；如果没有 IMU 传感器，则回退到 freejoint 的 `qpos/qvel`。由于左右轮关节轴在世界坐标中方向相反，控制器会给左右轮 actuator 反向控制量，使物理轮滚动力矩方向一致。它是原地平衡原型，不是行走控制器。
 
-当前默认站立姿态会让 hip/knee 稍微弯曲：
+当前默认站立姿态是近零位左右对称站立：
 
 ```text
-hip_pitch = -0.15 rad
-knee      =  0.35 rad
+hip_pitch  =  0.00 rad
+left_knee  =  0.10 rad
+right_knee = -0.10 rad
 ```
 
 运行平衡分析：
@@ -237,12 +244,64 @@ standing objective met=True
 
 这个 viewer 会使用 `scripts/balance_control.py` 中的默认稳健站立参数，每个仿真步写入腿部 PD 和左右轮平衡力矩。
 
+### 抗扰动控制 v1
+
+抗扰动 v1 在当前稳定站立控制器基础上，向 `base_link` 施加前后方向水平短推，验证机器人是否能靠轮子恢复姿态。当前默认扰动是：
+
+```text
+push_forces   = [-50 N, +50 N]
+push_start    = 1.0 s
+push_duration = 0.1 s
+duration      = 6.0 s
+```
+
+验收指标：
+
+- MuJoCo warning 数为 0
+- 状态保持 finite
+- 只允许左右轮接触地面
+- peak `|pitch| < 0.45 rad`
+- peak `|x drift| < 0.5 m`
+- final `|pitch| < 0.18 rad`
+- 轮子力矩饱和比例 `< 0.2`
+
+运行默认抗扰动分析：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\analyze_disturbance.py
+```
+
+输出目录：
+
+```text
+analysis\disturbance_results\
+```
+
+最近一次默认 `±50 N` 分析结果：
+
+```text
+-50 N: objective=True, peak |pitch|=0.244274 rad, final |pitch|=0.072131 rad, peak |x drift|=0.284904 m, bad contacts=none
++50 N: objective=True, peak |pitch|=0.130529 rad, final |pitch|=0.102619 rad, peak |x drift|=0.166669 m, bad contacts=none
+```
+
+在 MuJoCo Viewer 里手动看一次前向短推：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_balance_viewer.py --no-regenerate --push-force 50 --push-start 1.0 --push-duration 0.1
+```
+
+看反向短推：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_balance_viewer.py --no-regenerate --push-force -50 --push-start 1.0 --push-duration 0.1
+```
+
 ## 当前限制
 
 - 目前只是第一版原地 pitch 平衡原型，不是完整轮式双足平衡/行走控制器。
 - free-base 仿真允许机器人按真实动力学自然倒下。
 - Viewer 直接打开 XML 时不会自动运行 Python PD 控制器。
-- 当前稳健站立控制已通过 10 秒原地站立验证，但仍只是站立基线，不代表已经具备抗大扰动或行走能力。
+- 当前抗扰动 v1 只覆盖前后方向 `±50 N`、`0.1 s` 的短推，不代表已经具备侧向抗扰动、随机扰动、复杂地形或行走能力。
 - 阶跃响应中的 `nan` 表示该关节在分析时间内没有达到对应指标，例如没有达到 90% 上升或没有进入 2% 稳态区间。
 
 ## 最近验证结果
@@ -250,7 +309,7 @@ standing objective met=True
 当前版本测试结果：
 
 ```text
-60 passed in tests
+64 passed in tests
 ```
 
 模型诊断摘要：

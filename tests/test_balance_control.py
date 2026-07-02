@@ -370,6 +370,56 @@ def test_default_standing_keeps_only_wheels_on_ground(model):
     assert bad_contacts == set()
 
 
+def test_default_disturbance_push_forces_are_plus_minus_50():
+    from scripts.analyze_disturbance import DEFAULT_PUSH_FORCES
+
+    assert DEFAULT_PUSH_FORCES == (-50.0, 50.0)
+
+
+def test_forward_push_disturbance_meets_v1_objective(model):
+    from scripts.analyze_disturbance import run_disturbance_simulation
+
+    result = run_disturbance_simulation(model, push_force=50.0, duration=6.0)
+
+    assert result.push_force == pytest.approx(50.0)
+    assert result.push_impulse == pytest.approx(5.0)
+    assert result.warning_count == 0
+    assert result.finite
+    assert result.non_wheel_ground_contact_count == 0
+    assert result.peak_abs_pitch < 0.45
+    assert result.peak_abs_x_drift < 0.5
+    assert result.final_abs_pitch < 0.18
+    assert result.wheel_torque_saturation_fraction < 0.2
+    assert result.meets_disturbance_objective
+
+
+def test_default_disturbance_suite_runs_both_push_directions(model):
+    from scripts.analyze_disturbance import run_default_disturbance_suite
+
+    results = run_default_disturbance_suite(model, duration=6.0)
+
+    assert {result.push_force for result in results} == {-50.0, 50.0}
+    assert all(result.meets_disturbance_objective for result in results)
+
+
+def test_write_disturbance_results_outputs_planned_files(model, tmp_path):
+    from scripts.analyze_disturbance import (
+        run_default_disturbance_suite,
+        write_disturbance_results,
+    )
+
+    results = run_default_disturbance_suite(model, duration=0.05, push_start=0.01)
+    output_dir = write_disturbance_results(results, tmp_path)
+
+    assert output_dir == tmp_path
+    assert (tmp_path / "disturbance_summary.csv").is_file()
+    assert (tmp_path / "disturbance_timeseries.csv").is_file()
+    assert (tmp_path / "disturbance_report.md").is_file()
+    report = (tmp_path / "disturbance_report.md").read_text(encoding="utf-8")
+    assert "Disturbance Rejection Analysis" in report
+    assert "Default push forces: -50 N, +50 N" in report
+
+
 def test_standing_objective_values_accept_good_result():
     assert meets_standing_objective_values(
         warning_count=0,
@@ -736,3 +786,6 @@ def test_run_balance_viewer_help_succeeds():
     )
     assert completed.returncode == 0
     assert "--duration" in completed.stdout
+    assert "--push-force" in completed.stdout
+    assert "--push-start" in completed.stdout
+    assert "--push-duration" in completed.stdout
